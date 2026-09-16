@@ -253,3 +253,77 @@ export function playWin() {
 export function playLose() {
   tone({ type: 'triangle', from: 300, to: 190, duration: 0.5, gain: 0.12 });
 }
+
+// --- Core drag feedback -----------------------------------------------------
+//
+// The drag-to-lock Core needs continuous feedback tied to proximity, which a
+// one-shot `tone()` can't give — so this keeps a single persistent
+// oscillator alive for the whole drag gesture and re-tunes it every pointer
+// move, instead of spawning a new node per frame (which would be both wasteful
+// and, at 60fps, audibly glitchy).
+
+/** A faint per-anchor base pitch so five different targets don't hum identically. */
+const CORE_HUM_BASE_HZ: Record<Reality, number> = {
+  0: 70, // gravity — low, grounded
+  1: 130, // time — mid, a little unstable
+  2: 100, // scale — mid-low
+  3: 160, // orbit — higher, circling
+  4: 46, // void — lowest, ominous
+};
+
+let coreHum: { osc: OscillatorNode; gain: GainNode } | null = null;
+
+/** Call once, on pointerdown. */
+export function startCoreHum(outcome: Reality) {
+  const audio = ensure();
+  if (!audio || !master) return;
+  stopCoreHum();
+
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = CORE_HUM_BASE_HZ[outcome];
+  gain.gain.value = 0;
+  osc.connect(gain);
+  gain.connect(master);
+  osc.start();
+  coreHum = { osc, gain };
+}
+
+/**
+ * Call on every pointer move while dragging. `intensity` is 0..1 proximity to
+ * the nearest anchor; `outcome` re-tunes the base pitch if the nearest anchor
+ * changed since the hum started. Kept very quiet — this plays continuously
+ * during a drag, so it must never compete with the tap-card `playSelect` or
+ * become the thing a player mutes the game over.
+ */
+export function updateCoreHum(outcome: Reality, intensity: number) {
+  if (!coreHum || !ctx) return;
+  const t = ctx.currentTime;
+  const base = CORE_HUM_BASE_HZ[outcome];
+  coreHum.osc.frequency.setTargetAtTime(base + intensity * 40, t, 0.05);
+  coreHum.gain.gain.setTargetAtTime(intensity * 0.05, t, 0.08);
+}
+
+/** Call on pointerup / drag cancel — always safe to call even if not humming. */
+export function stopCoreHum() {
+  if (!coreHum || !ctx) {
+    coreHum = null;
+    return;
+  }
+  const { osc, gain } = coreHum;
+  const t = ctx.currentTime;
+  gain.gain.setTargetAtTime(0.0001, t, 0.06);
+  osc.stop(t + 0.25);
+  coreHum = null;
+}
+
+/** Edge-triggered — call once exactly when the drag crosses into lock range. */
+export function playCaptureReady() {
+  tone({ type: 'sine', from: jitter(720), to: jitter(980), duration: 0.11, gain: 0.06 });
+}
+
+/** The release missed every anchor's lock range — a soft, non-punishing miss. */
+export function playDragFizzle() {
+  tone({ type: 'sine', from: jitter(260), to: jitter(140), duration: 0.16, gain: 0.05 });
+}

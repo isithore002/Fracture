@@ -353,7 +353,13 @@ export function App() {
       </header>
 
       <div style={{ position: 'relative' }}>
-        <WorldCanvas phase={worldPhase} outcome={shownOutcome} />
+        <WorldCanvas
+          phase={worldPhase}
+          outcome={shownOutcome}
+          selected={prediction}
+          interactive={worldPhase === 'idle'}
+          onLock={pick}
+        />
 
         {round && (round.status === 'opening' || round.status === 'waiting') && (
           <p className="status">
@@ -390,6 +396,7 @@ export function App() {
 
       <section className="panel">
         <p className="section-label">Which law breaks next?</p>
+        <p className="section-hint">Drag the core above, or tap a card:</p>
         <div className="picks">
           {REALITIES.map(id => (
             <button

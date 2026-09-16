@@ -312,6 +312,133 @@ body {
   box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
 }
 
+/* ============================================= drag-to-lock core ========== */
+/*
+  Five static anchors plus one draggable Core, sitting above the scene, only
+  present while the world is idle. Dragging the Core near an anchor previews
+  that reality (a capped "lean" applied to .world-stage, driven imperatively
+  from WorldCanvas.tsx — not a CSS animation, so nothing here fights it) and
+  releasing inside its capture range locks that prediction.
+
+  The tap-card grid below the world is the accessible equivalent of every
+  action here, so this whole layer is `aria-hidden` in the markup and none of
+  it needs to be reachable by keyboard.
+*/
+
+.anchors {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none; /* only the Core itself is grabbable */
+}
+
+.anchor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 40px;
+  padding: 6px 0;
+  border-radius: 50%;
+  --intensity: 0;
+  background: radial-gradient(
+    circle,
+    rgba(185, 140, 255, calc(0.05 + var(--intensity) * 0.35)) 0%,
+    transparent 72%
+  );
+  box-shadow: 0 0 calc(4px + var(--intensity) * 22px) calc(1px + var(--intensity) * 6px)
+    rgba(185, 140, 255, calc(var(--intensity) * 0.55));
+  transition: background 90ms linear, box-shadow 90ms linear;
+}
+
+.anchor-glyph {
+  font-size: 15px;
+  line-height: 1;
+  color: rgba(242, 238, 252, calc(0.45 + var(--intensity) * 0.55));
+  filter: drop-shadow(0 0 calc(var(--intensity) * 6px) var(--accent));
+  transform: scale(calc(1 + var(--intensity) * 0.22));
+}
+
+.anchor-name {
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(154, 146, 184, calc(0.5 + var(--intensity) * 0.5));
+}
+
+.anchor-selected .anchor-glyph {
+  color: var(--accent-2);
+}
+
+/* Brief confirm flash on the anchor a drag just locked — the world-canvas
+   equivalent of the tap-card's .locking flash. */
+.anchor-locked-flash {
+  animation: anchor-lock-pulse 480ms var(--ease-break);
+}
+
+@keyframes anchor-lock-pulse {
+  0%   { box-shadow: 0 0 6px 2px rgba(185, 140, 255, 0.4); }
+  35%  { box-shadow: 0 0 34px 10px rgba(94, 230, 208, 0.65); }
+  100% { box-shadow: 0 0 6px 2px rgba(185, 140, 255, 0.4); }
+}
+
+.fracture-core {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, #fff 0%, var(--accent) 55%, #5a3fa8 100%);
+  box-shadow: 0 0 12px 3px rgba(185, 140, 255, 0.55);
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none; /* dragging the core must never scroll the page */
+  z-index: 3;
+}
+
+.fracture-core:active {
+  cursor: grabbing;
+}
+
+.fracture-core-inert {
+  pointer-events: none;
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Only present while the Core is settling into place without direct pointer
+   control (a missed release snapping back, or the small correction onto an
+   anchor's exact centre after a lock) — never during an active drag, where
+   the Core must track the pointer with zero lag. */
+.core-snap {
+  transition: left 240ms var(--ease-break), top 240ms var(--ease-break);
+}
+
+.drag-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 6%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(7, 6, 13, 0.65);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+  animation: hint-fade 3.6s ease-in 1;
+  animation-fill-mode: forwards;
+}
+
+@keyframes hint-fade {
+  0%, 70% { opacity: 1; }
+  100%    { opacity: 0; }
+}
+
 /* ----------------------------------------------------- ambient keyframes -- */
 
 @keyframes moon-drift {
@@ -578,6 +705,12 @@ body {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.section-hint {
+  margin: -6px 0 10px;
+  font-size: 11px;
+  color: rgba(154, 146, 184, 0.75);
 }
 
 .picks {
@@ -906,4 +1039,8 @@ body {
 @media (max-width: 380px) {
   .pick-name { font-size: 10px; }
   .pick-glyph { font-size: 17px; }
+  .anchor { width: 34px; }
+  .anchor-glyph { font-size: 13px; }
+  .anchor-name { font-size: 7px; }
+  .drag-hint { font-size: 9px; padding: 3px 8px; }
 }
