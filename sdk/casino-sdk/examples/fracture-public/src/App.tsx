@@ -1,0 +1,377 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { formatUnits, parseUnits } from 'viem';
+import type { HostSnapshotV1 } from '@chain/casino-sdk/guest';
+
+type HostSnapshotSessions = HostSnapshotV1['sessions']['items'];
+
+import { useCasinoHost } from './lib/useCasinoHost';
+import {
+  REALITIES,
+  REALITY,
+  chanceOf,
+  decodeGameState,
+  encodeGameData,
+  isTerminalPhase,
+  multiplierOf,
+  outcomeFromRandomness,
+  payoutFor,
+  type FractureResult,
+  type Reality,
+} from './lib/fracture';
+import { WorldCanvas, type WorldPhase } from './components/WorldCanvas';
+import {
+  playAnticipation,
+  playLose,
+  playOutcome,
+  playSelect,
+  playWin,
+  startAmbient,
+  unlockAudio,
+} from './lib/sound';
+import './styles/fracture.css';
+
+const GLYPH: Record<Reality, string> = {
+  0: '↑', // gravity — up arrow
+  1: '↺', // time — anticlockwise
+  2: '◱', // scale
+  3: '◌', // orbit
+  4: '⬤', // void
+};
+
+/** How long each break animation runs before the payout banner lands. */
+const BREAK_MS: Record<Reality, number> = {
+  0: 2100,
+  1: 2100,
+  2: 2100,
+  3: 2400,
+  4: 2600,
+};
+
+type Round = {
+  /** Local id for this round; never compared against host data. */
+  id: number;
+  /**
+   * The key the host handed back from `openSession`. The host opens with an
+   * optimistic `pending:<uuid>` row and later swaps it for the real session id,
+   * so this key can go stale — `knownKeys` is what actually finds our row.
+   */
+  sessionKey?: string;
+  /** Session keys that already existed when we opened, so we can spot ours. */
+  knownKeys: string[];
+  prediction: Reality;
+  wager: bigint;
+  status: 'opening' | 'waiting' | 'breaking' | 'settled';
+  result?: FractureResult;
+  payout?: bigint;
+};
+
+/**
+ * Finds this round's session row.
+ *
+ * The host pushes an optimistic `pending:<uuid>` row the moment `openSession`
+ * is called, then replaces it with the real session id once the transaction is
+ * observed — and the SDK documents that both arrival orders happen. Matching on
+ * the key `openSession` returned therefore loses the row exactly when it
+ * settles. We match the returned key when it is still present, and otherwise
+ * take the newest row that was not there before we opened.
+ */
+function findRow(
+  items: HostSnapshotSessions,
+  round: Round,
+): HostSnapshotSessions[number] | undefined {
+  if (round.sessionKey) {
+    const direct = items.find(item => item.sessionKey === round.sessionKey);
+    if (direct) return direct;
+  }
+  const known = new Set(round.knownKeys);
+  const fresh = items.filter(item => !known.has(item.sessionKey));
+  if (fresh.length === 0) return undefined;
+  // `items` is newest-first from the host; fall back to the last event stamp.
+  return fresh.reduce((newest, item) =>
+    item.lastEventTimestamp > newest.lastEventTimestamp ? item : newest,
+  );
+}
+
+export function App() {
+  const { hostApi, snapshot, demo } = useCasinoHost();
+
+  const [prediction, setPrediction] = useState<Reality>(0);
+  const [wagerInput, setWagerInput] = useState('1.00');
+  const [round, setRound] = useState<Round | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const breakTimer = useRef<number | undefined>(undefined);
+  const roundSeq = useRef(1);
+
+  const decimals = snapshot?.token.decimals ?? 18;
+  const symbol = snapshot?.token.symbol ?? 'chUSD';
+
+  const balance = useMemo(() => {
+    const raw = snapshot?.balances.smartVaultBalance;
+    return raw !== undefined ? BigInt(raw) : undefined;
+  }, [snapshot?.balances.smartVaultBalance]);
+
+  const wager = useMemo(() => {
+    try {
+      const parsed = parseUnits(wagerInput || '0', decimals);
+      return parsed > 0n ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, [wagerInput, decimals]);
+
+  const busy = round !== null && round.status !== 'settled';
+  const ready = snapshot?.wallet.status === 'ready';
+
+  // --- settle the active round from host snapshot pushes ---------------------
+  useEffect(() => {
+    if (!round || round.status !== 'waiting' || !snapshot) return;
+
+    const row = findRow(snapshot.sessions.items, round);
+    if (!row || !(row.isSettled || isTerminalPhase(row.phase))) return;
+
+    // Prefer the decoded on-chain game state; fall back to re-deriving the
+    // outcome from the raw VRF word with the same mapping the contract uses.
+    const decoded = row.raw.gameState ? decodeGameState(row.raw.gameState) : null;
+    const fromRandomness =
+      !decoded && row.raw.randomness && BigInt(row.raw.randomness) !== 0n
+        ? ((): FractureResult => {
+            const outcome = outcomeFromRandomness(row.raw.randomness as `0x${string}`);
+            return {
+              prediction: round.prediction,
+              outcome,
+              bucket: -1,
+              won: outcome === round.prediction,
+              randomness: row.raw.randomness as `0x${string}`,
+            };
+          })()
+        : null;
+
+    const result = decoded ?? fromRandomness;
+    if (!result) return; // settled but not synced yet — wait for the next push
+
+    const payout =
+      row.payout !== undefined && BigInt(row.payout) > 0n
+        ? BigInt(row.payout)
+        : result.won
+          ? payoutFor(round.wager, result.prediction)
+          : 0n;
+
+    setRound(current =>
+      current && current.id === round.id
+        ? { ...current, status: 'breaking', result, payout }
+        : current,
+    );
+
+    // This is the moment the world transforms.
+    playOutcome(result.outcome);
+
+    window.clearTimeout(breakTimer.current);
+    breakTimer.current = window.setTimeout(() => {
+      setRound(current =>
+        current && current.id === round.id ? { ...current, status: 'settled' } : current,
+      );
+      if (result.won) playWin();
+      else playLose();
+    }, BREAK_MS[result.outcome]);
+  }, [round, snapshot]);
+
+  useEffect(() => () => window.clearTimeout(breakTimer.current), []);
+
+  const pick = useCallback((next: Reality) => {
+    unlockAudio();
+    startAmbient();
+    playSelect();
+    setPrediction(next);
+  }, []);
+
+  const submit = useCallback(async () => {
+    if (!hostApi || !wager) return;
+    unlockAudio();
+    startAmbient();
+    setError(null);
+
+    const id = roundSeq.current++;
+    const knownKeys = (snapshot?.sessions.items ?? []).map(item => item.sessionKey);
+    setRound({ id, knownKeys, prediction, wager, status: 'opening' });
+
+    try {
+      const { sessionKey } = await hostApi.openSession({
+        wager: wager.toString(),
+        gameData: encodeGameData(prediction),
+      });
+      setRound(current =>
+        current && current.id === id ? { ...current, sessionKey, status: 'waiting' } : current,
+      );
+      playAnticipation();
+    } catch (e) {
+      setRound(null);
+      setError(e instanceof Error ? e.message : 'The bet could not be placed.');
+    }
+  }, [hostApi, wager, prediction, snapshot]);
+
+  const replay = useCallback(() => {
+    setRound(null);
+    setError(null);
+    startAmbient();
+  }, []);
+
+  // --- derived view state ----------------------------------------------------
+  const worldPhase: WorldPhase =
+    round === null || round.status === 'settled' && !round.result
+      ? 'idle'
+      : round.status === 'opening' || round.status === 'waiting'
+        ? 'anticipation'
+        : round.status === 'breaking'
+          ? 'breaking'
+          : 'settled';
+
+  const shownOutcome = round?.result?.outcome ?? null;
+  const potential = wager ? payoutFor(wager, prediction) : 0n;
+
+  const fmt = (v: bigint) => {
+    const s = formatUnits(v, decimals);
+    const n = Number(s);
+    return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 4 }) : s;
+  };
+
+  const canBet =
+    !!hostApi &&
+    !!wager &&
+    !busy &&
+    ready &&
+    (balance === undefined || wager <= balance);
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div>
+          <h1 className="wordmark">Fracture</h1>
+          <p className="tagline">Reality doesn&rsquo;t bend. It breaks.</p>
+        </div>
+        <div className="balance">
+          {demo && <span className="demo-pill">Demo</span>}
+          {balance !== undefined && (
+            <>
+              <strong>
+                {fmt(balance)} {symbol}
+              </strong>
+            </>
+          )}
+        </div>
+      </header>
+
+      <div style={{ position: 'relative' }}>
+        <WorldCanvas phase={worldPhase} outcome={shownOutcome} />
+
+        {round && (round.status === 'opening' || round.status === 'waiting') && (
+          <p className="status">
+            <span className="dots">Reality is deciding</span>
+          </p>
+        )}
+
+        {round?.status === 'settled' && round.result && (
+          <div className={`result ${round.result.won ? 'win' : 'lose'}`}>
+            <p className="result-headline">
+              {REALITY[round.result.outcome].name} broke
+            </p>
+            <p className="result-detail">
+              {round.result.won
+                ? `You called it — +${fmt(round.payout ?? 0n)} ${symbol} at ${multiplierOf(round.result.prediction).toFixed(4)}×`
+                : `You called ${REALITY[round.result.prediction].name} — −${fmt(round.wager)} ${symbol}`}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <section className="panel">
+        <p className="section-label">Which law breaks next?</p>
+        <div className="picks">
+          {REALITIES.map(id => (
+            <button
+              key={id}
+              type="button"
+              className="pick"
+              aria-pressed={prediction === id}
+              disabled={busy}
+              onClick={() => pick(id)}
+            >
+              <span className="pick-glyph" aria-hidden="true">
+                {GLYPH[id]}
+              </span>
+              <span className="pick-name">{REALITY[id].name}</span>
+              <span className="pick-mult">{multiplierOf(id).toFixed(2)}&times;</span>
+              <span className="pick-chance">{chanceOf(id)}%</span>
+            </button>
+          ))}
+        </div>
+        <p className="pick-note">{REALITY[prediction].tagline}</p>
+      </section>
+
+      <section className="panel">
+        <p className="section-label">Wager</p>
+        <div className="wager-row">
+          <div className="wager-field">
+            <input
+              inputMode="decimal"
+              value={wagerInput}
+              disabled={busy}
+              onChange={e => setWagerInput(e.target.value)}
+              aria-label={`Wager in ${symbol}`}
+            />
+            <span className="unit">{symbol}</span>
+          </div>
+          <button type="button" className="chip" disabled={busy} onClick={() => setWagerInput('1.00')}>
+            1
+          </button>
+          <button
+            type="button"
+            className="chip"
+            disabled={busy}
+            onClick={() => setWagerInput(v => String(Math.max(0, Number(v || '0') * 2)))}
+          >
+            2&times;
+          </button>
+          <button
+            type="button"
+            className="chip"
+            disabled={busy || balance === undefined}
+            onClick={() => balance !== undefined && setWagerInput(formatUnits(balance, decimals))}
+          >
+            Max
+          </button>
+        </div>
+
+        {round?.status === 'settled' ? (
+          <button type="button" className="cta" onClick={replay}>
+            Shift again
+          </button>
+        ) : (
+          <button type="button" className="cta" disabled={!canBet} onClick={() => void submit()}>
+            {busy ? 'Breaking…' : `Break ${REALITY[prediction].name}`}
+          </button>
+        )}
+
+        <p className="payout-preview">
+          {wager ? (
+            <>
+              Pays <strong>{fmt(potential)} {symbol}</strong> at {multiplierOf(prediction).toFixed(4)}&times; &middot;{' '}
+              {chanceOf(prediction)}% chance
+            </>
+          ) : (
+            'Enter a wager'
+          )}
+        </p>
+
+        {error && <p className="error">{error}</p>}
+      </section>
+
+      <p className="footnote">
+        95.00% RTP on every outcome, fixed by construction: payout = wager &times; 95 / weight, so
+        probability &times; payout is exactly 0.95 for all five.
+        {demo
+          ? ' Demo mode — play money, local RNG, no chain. Real rounds settle on-chain via Chain VRF.'
+          : ' Outcomes come from Chain’s VRF and settle on-chain.'}
+      </p>
+    </div>
+  );
+}

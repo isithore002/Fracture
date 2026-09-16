@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "gameId": "FractureGame",
+  "apiVersion": 1,
+  "defaultLocale": "en",
+  "locales": {
+    "en": {
+      "name": "Fracture",
+      "description": "Predict which law of reality is about to break — Gravity, Time, Scale, Orbit or Void. One wager, one VRF draw, and the whole miniature world transforms to match. 95% RTP on every outcome, fixed by construction."
+    }
+  },
+  "presentation": {
+    "mode": "full-iframe",
+    "hostPanels": {
+      "openSession": false,
+      "history": false,
+      "status": false
+    }
+  },
+  "capabilities": {
+    "openSession": true,
+    "submitAction": false,
+    "forfeitExpiredSession": false,
+    "cancelStuckRandomness": true,
+    "resize": true
+  },
+  "assets": {
+    "iconUrl": "/icon.svg",
+    "coverUrl": "/cover.svg"
+  },
+  "jam": {
+    "category": "originals",
+    "novelty": true,
+    "rtp": 0.95,
+    "rtpBand": [0.93, 0.98],
+    "entryPoint": "/",
+    "widgetRequired": true,
+    "standalone": true,
+    "mechanic": "world-transformation-prediction"
+  }
+}

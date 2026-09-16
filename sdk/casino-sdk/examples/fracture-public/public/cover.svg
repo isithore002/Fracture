@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2a1c4d"/>
+      <stop offset="55%" stop-color="#141033"/>
+      <stop offset="100%" stop-color="#07060f"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="10%" stop-color="#f2eefc"/>
+      <stop offset="60%" stop-color="#b98cff"/>
+      <stop offset="100%" stop-color="#5ee6d0"/>
+    </linearGradient>
+    <radialGradient id="moon" cx="35%" cy="32%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="55%" stop-color="#ffeec2"/>
+      <stop offset="100%" stop-color="#d8b784"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="640" height="400" fill="url(#sky)"/>
+
+  <circle cx="118" cy="86" r="30" fill="url(#moon)" opacity="0.95"/>
+  <circle cx="430" cy="62" r="2.5" fill="#fff" opacity="0.8"/>
+  <circle cx="515" cy="104" r="2" fill="#fff" opacity="0.6"/>
+  <circle cx="352" cy="44" r="1.8" fill="#fff" opacity="0.7"/>
+
+  <!-- ground -->
+  <path d="M-20 318 Q320 268 660 318 L660 400 L-20 400 Z" fill="#1d2f3a"/>
+
+  <!-- tree, tilting as gravity gives out -->
+  <g transform="rotate(-12 150 318)">
+    <rect x="145" y="272" width="8" height="46" rx="2" fill="#5a4432"/>
+    <ellipse cx="149" cy="262" rx="27" ry="31" fill="#2f7d5c"/>
+  </g>
+
+  <!-- house, lifting off the ground -->
+  <g transform="translate(330 262) rotate(9)">
+    <polygon points="0,0 46,-30 92,0" fill="#b85c7a"/>
+    <rect x="8" y="0" width="76" height="50" rx="3" fill="#e9e3f7"/>
+    <rect x="24" y="16" width="16" height="16" rx="2" fill="#ffeec2"/>
+    <rect x="52" y="24" width="15" height="26" rx="7" fill="#6b5a8f"/>
+  </g>
+
+  <!-- debris floating up -->
+  <circle cx="250" cy="200" r="7" fill="#4a4763" opacity="0.9"/>
+  <circle cx="470" cy="168" r="5" fill="#4a4763" opacity="0.75"/>
+  <circle cx="392" cy="136" r="4" fill="#4a4763" opacity="0.6"/>
+
+  <text x="320" y="368" text-anchor="middle"
+        font-family="Poppins, system-ui, sans-serif" font-size="42" font-weight="800"
+        font-style="italic" letter-spacing="6" fill="url(#ink)">FRACTURE</text>
+</svg>
