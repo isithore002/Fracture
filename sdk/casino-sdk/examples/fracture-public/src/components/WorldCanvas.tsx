@@ -1,6 +1,12 @@
 import type { Reality } from '../lib/fracture';
 
-export type WorldPhase = 'idle' | 'anticipation' | 'breaking' | 'settled';
+/**
+ * 'holding' is a brief, silent beat between "the result is known" and "the
+ * world visibly breaks" — see MIN_ANTICIPATION_MS / HOLD_MS in App.tsx. The
+ * world freezes at the tensest point of the anticipation pulse rather than
+ * relaxing back to idle, so the silence reads as held breath, not a glitch.
+ */
+export type WorldPhase = 'idle' | 'anticipation' | 'holding' | 'breaking' | 'settled';
 
 type Props = {
   phase: WorldPhase;

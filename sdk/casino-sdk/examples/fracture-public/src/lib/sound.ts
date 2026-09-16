@@ -39,6 +39,11 @@ export function isMuted(): boolean {
   return muted;
 }
 
+/** Small random detune so a cue played every round doesn't sound identical. */
+function jitter(hz: number, pct = 0.03): number {
+  return hz * (1 - pct + Math.random() * pct * 2);
+}
+
 export function setMuted(next: boolean) {
   muted = next;
   if (master) master.gain.value = next ? 0 : 0.9;
@@ -172,8 +177,24 @@ export function playAnticipation() {
   tone({ type: 'sine', from: 180, to: 640, duration: 1.6, gain: 0.03, delay: 0.08 });
 }
 
+/**
+ * A soft heartbeat during a wait that outlasts the initial tension sweep.
+ * Synced to the same 1.4s cycle as the CSS "tension" pulse on the world.
+ * Deliberately quiet and short so a slow VRF round-trip doesn't turn into an
+ * annoying loop on repeated plays.
+ */
+export function playTensionPulse() {
+  tone({ type: 'sine', from: jitter(96), to: jitter(58), duration: 0.16, gain: 0.045 });
+}
+
+/** Immediate confirm the instant a bet is placed, before the network round-trip. */
+export function playLock() {
+  tone({ type: 'square', from: jitter(240), duration: 0.05, gain: 0.06 });
+  tone({ type: 'sine', from: jitter(480), duration: 0.09, gain: 0.05, delay: 0.05 });
+}
+
 export function playSelect() {
-  tone({ type: 'triangle', from: 520, to: 780, duration: 0.09, gain: 0.08 });
+  tone({ type: 'triangle', from: jitter(520), to: jitter(780), duration: 0.09, gain: 0.08 });
 }
 
 /**

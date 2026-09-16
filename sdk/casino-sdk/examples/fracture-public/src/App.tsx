@@ -21,9 +21,11 @@ import {
 import { WorldCanvas, type WorldPhase } from './components/WorldCanvas';
 import {
   playAnticipation,
+  playLock,
   playLose,
   playOutcome,
   playSelect,
+  playTensionPulse,
   playWin,
   startAmbient,
   unlockAudio,
@@ -47,6 +49,28 @@ const BREAK_MS: Record<Reality, number> = {
   4: 2600,
 };
 
+/**
+ * Presentation-only pacing. None of this changes when the round actually
+ * settles on-chain — it only paces how the *reveal* of an already-known
+ * result is staged, so a fast VRF round-trip doesn't feel abrupt and a slow
+ * one doesn't feel broken:
+ *
+ *   click -> [MIN_ANTICIPATION_MS floor, measured from the click] -> HOLD_MS
+ *   silent beat -> the world breaks -> BREAK_MS[outcome] -> settled
+ */
+const MIN_ANTICIPATION_MS = 1450;
+/** A deliberate beat of near-silence right before the transformation starts. */
+const HOLD_MS = 340;
+/**
+ * A floor on the "prediction locked" beat itself. In demo mode `openSession`
+ * resolves almost instantly (no real network round-trip), which would cut the
+ * lock-flash animation off after a few ms. On a real host this never binds —
+ * the actual transaction round-trip already takes longer than this.
+ */
+const LOCK_MS = 460;
+/** Cadence of the soft "still waiting" pulse, matched to the CSS tension loop. */
+const TENSION_PULSE_MS = 1400;
+
 type Round = {
   /** Local id for this round; never compared against host data. */
   id: number;
@@ -60,7 +84,13 @@ type Round = {
   knownKeys: string[];
   prediction: Reality;
   wager: bigint;
-  status: 'opening' | 'waiting' | 'breaking' | 'settled';
+  /**
+   * `holding` is a purely presentational beat between "the result is known"
+   * and "the world visibly breaks" — see MIN_ANTICIPATION_MS / HOLD_MS above.
+   */
+  status: 'opening' | 'waiting' | 'holding' | 'breaking' | 'settled';
+  /** ms since epoch when the player committed — the anticipation floor. */
+  openedAt: number;
   result?: FractureResult;
   payout?: bigint;
 };
@@ -99,8 +129,16 @@ export function App() {
   const [wagerInput, setWagerInput] = useState('1.00');
   const [round, setRound] = useState<Round | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const breakTimer = useRef<number | undefined>(undefined);
+  /** Reveal-pacing timers, in the order they fire: lock -> floor -> hold -> settle. */
+  const lockTimer = useRef<number | undefined>(undefined);
+  const floorTimer = useRef<number | undefined>(undefined);
+  const holdTimer = useRef<number | undefined>(undefined);
+  const settleTimer = useRef<number | undefined>(undefined);
   const roundSeq = useRef(1);
+  /** Round ids whose settlement has already been staged, so a repeat host
+   *  snapshot push while we're mid-reveal doesn't restart the sequence or
+   *  double-fire the outcome sound. */
+  const staged = useRef(new Set<number>());
 
   const decimals = snapshot?.token.decimals ?? 18;
   const symbol = snapshot?.token.symbol ?? 'chUSD';
@@ -123,8 +161,18 @@ export function App() {
   const ready = snapshot?.wallet.status === 'ready';
 
   // --- settle the active round from host snapshot pushes ---------------------
+  //
+  // The result itself is known the instant the host reports the row settled —
+  // nothing here changes when that happens or what it is. What changes is how
+  // the *reveal* is staged, so a fast VRF round-trip doesn't feel like nothing
+  // happened and a slow one doesn't feel broken:
+  //
+  //   result known -> (wait out MIN_ANTICIPATION_MS from the click, if needed)
+  //   -> a silent "holding" beat (HOLD_MS) -> the world breaks + outcome sound
+  //   -> BREAK_MS[outcome] of transformation -> settled + win/lose sound
   useEffect(() => {
     if (!round || round.status !== 'waiting' || !snapshot) return;
+    if (staged.current.has(round.id)) return; // already sequencing this round
 
     const row = findRow(snapshot.sessions.items, round);
     if (!row || !(row.isSettled || isTerminalPhase(row.phase))) return;
@@ -156,26 +204,57 @@ export function App() {
           ? payoutFor(round.wager, result.prediction)
           : 0n;
 
-    setRound(current =>
-      current && current.id === round.id
-        ? { ...current, status: 'breaking', result, payout }
-        : current,
-    );
+    staged.current.add(round.id);
+    const roundId = round.id;
+    const elapsed = Date.now() - round.openedAt;
+    const floorDelay = Math.max(0, MIN_ANTICIPATION_MS - elapsed);
 
-    // This is the moment the world transforms.
-    playOutcome(result.outcome);
-
-    window.clearTimeout(breakTimer.current);
-    breakTimer.current = window.setTimeout(() => {
+    window.clearTimeout(floorTimer.current);
+    floorTimer.current = window.setTimeout(() => {
+      // The silent beat: tension stops, nothing plays, the world holds still.
       setRound(current =>
-        current && current.id === round.id ? { ...current, status: 'settled' } : current,
+        current && current.id === roundId ? { ...current, status: 'holding', result, payout } : current,
       );
-      if (result.won) playWin();
-      else playLose();
-    }, BREAK_MS[result.outcome]);
+
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = window.setTimeout(() => {
+        setRound(current =>
+          current && current.id === roundId ? { ...current, status: 'breaking' } : current,
+        );
+        // This is the moment the world transforms.
+        playOutcome(result.outcome);
+
+        window.clearTimeout(settleTimer.current);
+        settleTimer.current = window.setTimeout(() => {
+          setRound(current =>
+            current && current.id === roundId ? { ...current, status: 'settled' } : current,
+          );
+          if (result.won) playWin();
+          else playLose();
+        }, BREAK_MS[result.outcome]);
+      }, HOLD_MS);
+    }, floorDelay);
   }, [round, snapshot]);
 
-  useEffect(() => () => window.clearTimeout(breakTimer.current), []);
+  // A soft heartbeat while the VRF round-trip runs longer than the initial
+  // tension sweep, so a slow settle doesn't read as the game having stalled.
+  // Stops the instant we leave 'waiting' (i.e. right as the silent hold beat
+  // begins), which is what keeps the silence in "silence -> reveal" honest.
+  useEffect(() => {
+    if (round?.status !== 'waiting') return;
+    const id = window.setInterval(() => playTensionPulse(), TENSION_PULSE_MS);
+    return () => window.clearInterval(id);
+  }, [round?.status]);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(lockTimer.current);
+      window.clearTimeout(floorTimer.current);
+      window.clearTimeout(holdTimer.current);
+      window.clearTimeout(settleTimer.current);
+    },
+    [],
+  );
 
   const pick = useCallback((next: Reality) => {
     unlockAudio();
@@ -191,18 +270,29 @@ export function App() {
     setError(null);
 
     const id = roundSeq.current++;
+    const openedAt = Date.now();
     const knownKeys = (snapshot?.sessions.items ?? []).map(item => item.sessionKey);
-    setRound({ id, knownKeys, prediction, wager, status: 'opening' });
+    // "Prediction locked" — the commit itself, before the network round-trip.
+    setRound({ id, knownKeys, prediction, wager, status: 'opening', openedAt });
+    playLock();
 
     try {
       const { sessionKey } = await hostApi.openSession({
         wager: wager.toString(),
         gameData: encodeGameData(prediction),
       });
-      setRound(current =>
-        current && current.id === id ? { ...current, sessionKey, status: 'waiting' } : current,
-      );
-      playAnticipation();
+      // The bet is already placed — this only delays *our own* visual exit
+      // from the "locked" beat, so the lock-flash isn't cut off by a session
+      // open that resolves in a handful of ms (demo mode has no real network
+      // round-trip). A real host's tx round-trip already exceeds LOCK_MS.
+      const lockElapsed = Date.now() - openedAt;
+      window.clearTimeout(lockTimer.current);
+      lockTimer.current = window.setTimeout(() => {
+        setRound(current =>
+          current && current.id === id ? { ...current, sessionKey, status: 'waiting' } : current,
+        );
+        playAnticipation();
+      }, Math.max(0, LOCK_MS - lockElapsed));
     } catch (e) {
       setRound(null);
       setError(e instanceof Error ? e.message : 'The bet could not be placed.');
@@ -217,13 +307,15 @@ export function App() {
 
   // --- derived view state ----------------------------------------------------
   const worldPhase: WorldPhase =
-    round === null || round.status === 'settled' && !round.result
+    round === null || (round.status === 'settled' && !round.result)
       ? 'idle'
       : round.status === 'opening' || round.status === 'waiting'
         ? 'anticipation'
-        : round.status === 'breaking'
-          ? 'breaking'
-          : 'settled';
+        : round.status === 'holding'
+          ? 'holding'
+          : round.status === 'breaking'
+            ? 'breaking'
+            : 'settled';
 
   const shownOutcome = round?.result?.outcome ?? null;
   const potential = wager ? payoutFor(wager, prediction) : 0n;
@@ -275,9 +367,22 @@ export function App() {
               {REALITY[round.result.outcome].name} broke
             </p>
             <p className="result-detail">
-              {round.result.won
-                ? `You called it — +${fmt(round.payout ?? 0n)} ${symbol} at ${multiplierOf(round.result.prediction).toFixed(4)}×`
-                : `You called ${REALITY[round.result.prediction].name} — −${fmt(round.wager)} ${symbol}`}
+              {round.result.won ? (
+                <>
+                  You called it —{' '}
+                  <span className="amount amount-win">
+                    +{fmt(round.payout ?? 0n)} {symbol}
+                  </span>{' '}
+                  at {multiplierOf(round.result.prediction).toFixed(4)}&times;
+                </>
+              ) : (
+                <>
+                  You called {REALITY[round.result.prediction].name} —{' '}
+                  <span className="amount amount-lose">
+                    &minus;{fmt(round.wager)} {symbol}
+                  </span>
+                </>
+              )}
             </p>
           </div>
         )}
@@ -290,7 +395,9 @@ export function App() {
             <button
               key={id}
               type="button"
-              className="pick"
+              // Brief one-shot flash the instant this prediction is locked in,
+              // distinct from the persistent aria-pressed selection styling.
+              className={`pick${prediction === id && round?.status === 'opening' ? ' locking' : ''}`}
               aria-pressed={prediction === id}
               disabled={busy}
               onClick={() => pick(id)}
