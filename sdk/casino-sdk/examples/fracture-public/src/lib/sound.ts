@@ -1,0 +1,234 @@
+import type { Reality } from './fracture';
+
+/**
+ * SoundManager — every cue is synthesised with WebAudio at play time.
+ *
+ * No audio files: the whole sound design ships as a few hundred bytes of
+ * oscillator scheduling instead of megabytes of samples. That matters here
+ * because the jam scores "loads near-instantly" and the game runs in an
+ * iframe on mobile connections.
+ *
+ * The context is created lazily on the first user gesture, because browsers
+ * suspend audio contexts that are constructed before one.
+ */
+
+let ctx: AudioContext | null = null;
+let master: GainNode | null = null;
+let ambientStop: (() => void) | null = null;
+let muted = false;
+
+function ensure(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  if (!ctx) {
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return null;
+    try {
+      ctx = new Ctor();
+      master = ctx.createGain();
+      master.gain.value = 0.9;
+      master.connect(ctx.destination);
+    } catch {
+      return null;
+    }
+  }
+  if (ctx.state === 'suspended') void ctx.resume();
+  return ctx;
+}
+
+export function isMuted(): boolean {
+  return muted;
+}
+
+export function setMuted(next: boolean) {
+  muted = next;
+  if (master) master.gain.value = next ? 0 : 0.9;
+}
+
+/** Call from a click handler so the context is allowed to start. */
+export function unlockAudio() {
+  ensure();
+}
+
+type ToneOptions = {
+  type?: OscillatorType;
+  from: number;
+  to?: number;
+  duration: number;
+  gain?: number;
+  delay?: number;
+  /** -1 = hard left, 1 = hard right. */
+  pan?: number;
+  panTo?: number;
+};
+
+function tone(opts: ToneOptions) {
+  const audio = ensure();
+  if (!audio || !master) return;
+
+  const t0 = audio.currentTime + (opts.delay ?? 0);
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  const peak = opts.gain ?? 0.2;
+
+  osc.type = opts.type ?? 'sine';
+  osc.frequency.setValueAtTime(opts.from, t0);
+  if (opts.to !== undefined) {
+    osc.frequency.exponentialRampToValueAtTime(Math.max(opts.to, 0.0001), t0 + opts.duration);
+  }
+
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(peak, t0 + Math.min(0.06, opts.duration * 0.25));
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + opts.duration);
+
+  let tail: AudioNode = gain;
+  if (opts.pan !== undefined && audio.createStereoPanner) {
+    const panner = audio.createStereoPanner();
+    panner.pan.setValueAtTime(opts.pan, t0);
+    if (opts.panTo !== undefined) {
+      panner.pan.linearRampToValueAtTime(opts.panTo, t0 + opts.duration);
+    }
+    gain.connect(panner);
+    tail = panner;
+  }
+
+  osc.connect(gain);
+  tail.connect(master);
+  osc.start(t0);
+  osc.stop(t0 + opts.duration + 0.05);
+}
+
+function noise(duration: number, gain = 0.15, delay = 0, filterHz = 1400) {
+  const audio = ensure();
+  if (!audio || !master) return;
+
+  const t0 = audio.currentTime + delay;
+  const frames = Math.floor(audio.sampleRate * duration);
+  const buffer = audio.createBuffer(1, frames, audio.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+
+  const src = audio.createBufferSource();
+  src.buffer = buffer;
+
+  const filter = audio.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = filterHz;
+
+  const g = audio.createGain();
+  g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+
+  src.connect(filter);
+  filter.connect(g);
+  g.connect(master);
+  src.start(t0);
+}
+
+/** A low ambient bed that runs while the world is idle. */
+export function startAmbient() {
+  const audio = ensure();
+  if (!audio || !master || ambientStop) return;
+
+  const osc = audio.createOscillator();
+  const lfo = audio.createOscillator();
+  const lfoGain = audio.createGain();
+  const gain = audio.createGain();
+
+  osc.type = 'sine';
+  osc.frequency.value = 55;
+  lfo.type = 'sine';
+  lfo.frequency.value = 0.08;
+  lfoGain.gain.value = 5;
+
+  gain.gain.value = 0.045;
+
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc.frequency);
+  osc.connect(gain);
+  gain.connect(master);
+
+  osc.start();
+  lfo.start();
+
+  ambientStop = () => {
+    try {
+      gain.gain.setTargetAtTime(0.0001, audio.currentTime, 0.2);
+      osc.stop(audio.currentTime + 0.6);
+      lfo.stop(audio.currentTime + 0.6);
+    } catch {
+      /* already stopped */
+    }
+    ambientStop = null;
+  };
+}
+
+export function stopAmbient() {
+  ambientStop?.();
+}
+
+/** Rising tension while the VRF request is in flight. */
+export function playAnticipation() {
+  tone({ type: 'sawtooth', from: 90, to: 320, duration: 1.6, gain: 0.05 });
+  tone({ type: 'sine', from: 180, to: 640, duration: 1.6, gain: 0.03, delay: 0.08 });
+}
+
+export function playSelect() {
+  tone({ type: 'triangle', from: 520, to: 780, duration: 0.09, gain: 0.08 });
+}
+
+/**
+ * The five outcome cues, matching the design notes:
+ *   Gravity — deep bass drop        Orbit — rotating spatial pan
+ *   Time    — reversed ticking      Void  — silence, then sub-bass
+ *   Scale   — heavy impact
+ */
+export function playOutcome(outcome: Reality) {
+  switch (outcome) {
+    case 0: // GRAVITY — bass drop, then the rise as everything floats up
+      tone({ type: 'sine', from: 220, to: 28, duration: 1.5, gain: 0.34 });
+      tone({ type: 'triangle', from: 110, to: 660, duration: 1.8, gain: 0.07, delay: 0.25 });
+      break;
+
+    case 1: // TIME — reversed ticking: clicks accelerating as it rewinds
+      for (let i = 0; i < 14; i++) {
+        const t = i / 14;
+        noise(0.035, 0.16 * (1 - t * 0.5), t * t * 1.5, 2600);
+        tone({ type: 'square', from: 900 - i * 34, duration: 0.02, gain: 0.05, delay: t * t * 1.5 });
+      }
+      tone({ type: 'sawtooth', from: 420, to: 130, duration: 1.9, gain: 0.05 });
+      break;
+
+    case 2: // SCALE — heavy impact
+      noise(0.5, 0.42, 0, 900);
+      tone({ type: 'sine', from: 150, to: 36, duration: 0.7, gain: 0.4 });
+      tone({ type: 'square', from: 70, to: 40, duration: 0.9, gain: 0.12, delay: 0.04 });
+      // second, smaller impact as the shrunken objects land
+      noise(0.3, 0.2, 0.42, 1500);
+      break;
+
+    case 3: // ORBIT — a tone sweeping hard across the stereo field
+      tone({ type: 'sine', from: 320, to: 210, duration: 2.3, gain: 0.22, pan: -1, panTo: 1 });
+      tone({ type: 'triangle', from: 160, to: 105, duration: 2.3, gain: 0.16, pan: 1, panTo: -1 });
+      tone({ type: 'sine', from: 640, to: 420, duration: 2.3, gain: 0.06, pan: -0.6, panTo: 0.6 });
+      break;
+
+    case 4: // VOID — silence first, then sub-bass out of nothing
+      stopAmbient();
+      tone({ type: 'sine', from: 480, to: 90, duration: 0.55, gain: 0.1 });
+      // ~0.9s of nothing, then the floor drops out
+      tone({ type: 'sine', from: 46, to: 18, duration: 2.6, gain: 0.5, delay: 1.45 });
+      tone({ type: 'sine', from: 92, to: 36, duration: 2.2, gain: 0.16, delay: 1.45 });
+      break;
+  }
+}
+
+export function playWin() {
+  tone({ type: 'triangle', from: 523, duration: 0.16, gain: 0.16, delay: 0 });
+  tone({ type: 'triangle', from: 659, duration: 0.16, gain: 0.16, delay: 0.1 });
+  tone({ type: 'triangle', from: 784, duration: 0.3, gain: 0.18, delay: 0.2 });
+  tone({ type: 'sine', from: 1046, duration: 0.5, gain: 0.1, delay: 0.3 });
+}
+
+export function playLose() {
+  tone({ type: 'triangle', from: 300, to: 190, duration: 0.5, gain: 0.12 });
+}
