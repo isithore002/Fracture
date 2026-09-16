@@ -1,0 +1,7 @@
+node_modules/
+dist/
+sdk/casino-sdk/simulator/local-node/deployed.json
+sdk/casino-sdk/simulator/node_modules/
+sdk/casino-sdk/local-verify-network/
+package-lock.json
+*.log

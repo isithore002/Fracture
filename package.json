@@ -1,0 +1,12 @@
+{
+  "name": "fracture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify:rtp": "node scripts/verify-rtp.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "viem": "^2.52.2"
+  }
+}
