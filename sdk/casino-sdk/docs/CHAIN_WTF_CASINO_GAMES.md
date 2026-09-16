@@ -998,3 +998,27 @@ If you implement the parent app (not the iframe), you must:
 ## 8. Appendix
 
 ### 8.1 Guest `package.json` dependencies (example)
+
+```json
+{
+  "dependencies": {
+    "@chain/casino-sdk": "^0.1.0",
+    "penpal": "^7.0.4",
+    "react": "^19.0.0",
+    "viem": "^2.x"
+  }
+}
+```
+
+Use the version your registry publishes, or remove this dependency entirely if you vendor the SDK sources.
+
+If **`@chain/casino-sdk`** is **not** on a public registry, **copy** the **`types.ts`**, **`guest.ts`**, and **`host.ts`** sources into your repo (preserve exports **`./guest`** and **`./host`**) and depend on **`penpal`** directly.
+
+### 8.2 Security notes
+
+- Penpal **origin allowlisting**: the host passes **`childOrigin`**; the guest allows the **referrer** origin when **`document.referrer`** is parseable, else **`*`** (development only — production games should be served from a stable origin behind HTTPS).
+- **Never** trust client-only math for payouts — **always** treat **`gameState`** and balances as **hints**; the **facet + game contract** are authoritative.
+
+---
+
+_End of document._
