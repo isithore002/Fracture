@@ -59,6 +59,42 @@ const ANCHOR_POS: Record<Reality, { left: number; top: number }> = {
   4: { left: 17, top: 34 }, // void — upper left
 };
 
+/**
+ * The star field. Sizes are in `cqw` so they scale with the frame like the
+ * rest of the scene; varied radius/duration/delay stops the sky reading as a
+ * regular grid of identical dots. Hand-placed rather than random so the
+ * composition is stable across reloads and screenshots.
+ */
+const STARS: { x: number; y: number; r: number; dur: number; delay: number }[] = [
+  { x: 62, y: 18, r: 0.42, dur: 3.1, delay: 0 },
+  { x: 78, y: 9, r: 0.34, dur: 4.3, delay: 0.6 },
+  { x: 40, y: 27, r: 0.3, dur: 3.7, delay: 1.4 },
+  { x: 88, y: 22, r: 0.46, dur: 5.2, delay: 0.3 },
+  { x: 25, y: 11, r: 0.28, dur: 4.6, delay: 2.1 },
+  { x: 53, y: 6, r: 0.36, dur: 3.4, delay: 1.1 },
+  { x: 70, y: 33, r: 0.24, dur: 5.8, delay: 0.9 },
+  { x: 94, y: 40, r: 0.3, dur: 4.1, delay: 1.8 },
+  { x: 12, y: 24, r: 0.26, dur: 6.2, delay: 0.4 },
+  { x: 33, y: 38, r: 0.22, dur: 4.9, delay: 2.6 },
+  { x: 47, y: 15, r: 0.2, dur: 5.5, delay: 3.1 },
+  { x: 82, y: 30, r: 0.24, dur: 3.9, delay: 1.5 },
+  { x: 6, y: 8, r: 0.32, dur: 4.4, delay: 2.3 },
+  { x: 58, y: 42, r: 0.2, dur: 6.6, delay: 0.7 },
+  { x: 97, y: 13, r: 0.28, dur: 5.0, delay: 1.9 },
+  { x: 19, y: 41, r: 0.2, dur: 5.7, delay: 3.4 },
+  { x: 72, y: 3, r: 0.24, dur: 4.2, delay: 2.8 },
+  { x: 43, y: 34, r: 0.18, dur: 6.9, delay: 1.2 },
+];
+
+/** Fireflies near the ground — the one thing that drifts on its own path. */
+const MOTES: { x: number; y: number; r: number; dur: number; delay: number }[] = [
+  { x: 30, y: 72, r: 0.55, dur: 9, delay: 0 },
+  { x: 58, y: 78, r: 0.45, dur: 11, delay: 2.4 },
+  { x: 74, y: 68, r: 0.5, dur: 10, delay: 4.1 },
+  { x: 16, y: 80, r: 0.4, dur: 12, delay: 6.3 },
+  { x: 88, y: 76, r: 0.42, dur: 13, delay: 1.7 },
+];
+
 /** Proximity at or above this (0..1) is close enough to lock on release. */
 const LOCK_THRESHOLD = 0.55;
 
@@ -333,40 +369,116 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
   return (
     <div className="world" data-phase={phase} data-break={breakKey}>
       <div className="world-frame" ref={frameRef}>
-        <div className="world-stage" ref={stageRef}>
-          {/* sky layer -------------------------------------------------- */}
+        {/* The whole scene is decorative — the round's state is conveyed by
+            the result banner and the prediction cards, both of which are
+            real text, so one aria-hidden here covers all of it. */}
+        <div className="world-stage" ref={stageRef} aria-hidden="true">
+          {/* sky --------------------------------------------------------- */}
           <div className="layer layer-sky">
-            <div className="obj moon" aria-hidden="true" />
-            <div className="obj star star-a" aria-hidden="true" />
-            <div className="obj star star-b" aria-hidden="true" />
-            <div className="obj star star-c" aria-hidden="true" />
-            <div className="obj cloud cloud-a" aria-hidden="true" />
-            <div className="obj cloud cloud-b" aria-hidden="true" />
+            <div className="nebula nebula-a" />
+            <div className="nebula nebula-b" />
+
+            {STARS.map((s, i) => (
+              <span
+                key={i}
+                className="star"
+                style={{
+                  left: `${s.x}%`,
+                  top: `${s.y}%`,
+                  width: `${s.r}cqw`,
+                  height: `${s.r}cqw`,
+                  animationDuration: `${s.dur}s`,
+                  animationDelay: `${s.delay}s`,
+                }}
+              />
+            ))}
+
+            <div className="obj moon" />
+
+            <div className="obj cloud cloud-a">
+              <i />
+              <i />
+              <i />
+            </div>
+            <div className="obj cloud cloud-b">
+              <i />
+              <i />
+              <i />
+            </div>
+            <div className="obj cloud cloud-c">
+              <i />
+              <i />
+              <i />
+            </div>
           </div>
 
-          {/* ground layer ----------------------------------------------- */}
+          {/* distance — silhouette bands behind the ground for depth ------ */}
+          <div className="layer layer-far">
+            <div className="hills hills-back" />
+            <div className="hills hills-mid" />
+            <div className="horizon-glow" />
+          </div>
+
+          {/* ground ------------------------------------------------------ */}
+          {/* The grass plane and its track paint FIRST so everything below
+              stands on top of them. They used to come last, which buried the
+              base of the house, the tree trunk and the fence under the
+              ground's curve — invisible at phone size, obvious once the
+              scene scaled up. */}
           <div className="layer layer-ground">
-            <div className="obj tree" aria-hidden="true">
+            <div className="ground" />
+            <div className="path" />
+
+            <div className="obj tree tree-far">
               <span className="tree-canopy" />
               <span className="tree-trunk" />
             </div>
 
-            <div className="obj house" aria-hidden="true">
+            <div className="obj house">
               <span className="house-roof" />
               <span className="house-body" />
               <span className="house-window" />
+              <span className="house-window house-window-b" />
               <span className="house-door" />
             </div>
 
-            <div className="obj rock rock-a" aria-hidden="true" />
-            <div className="obj rock rock-b" aria-hidden="true" />
-            <div className="obj fence" aria-hidden="true" />
+            <div className="obj tree">
+              <span className="tree-canopy" />
+              <span className="tree-trunk" />
+            </div>
 
-            <div className="ground" aria-hidden="true" />
+            <div className="obj rock rock-a" />
+            <div className="obj rock rock-b" />
+            <div className="obj rock rock-c" />
+            <div className="obj fence" />
+
+            <div className="obj grass grass-a" />
+            <div className="obj grass grass-b" />
+            <div className="obj grass grass-c" />
+            <div className="obj grass grass-d" />
+          </div>
+
+          {/* fireflies --------------------------------------------------- */}
+          <div className="layer layer-motes">
+            {MOTES.map((m, i) => (
+              <span
+                key={i}
+                className="mote"
+                style={{
+                  left: `${m.x}%`,
+                  top: `${m.y}%`,
+                  width: `${m.r}cqw`,
+                  height: `${m.r}cqw`,
+                  boxShadow: `0 0 ${m.r * 3}cqw ${m.r}cqw rgba(255, 238, 194, 0.45)`,
+                  animationDuration: `${m.dur}s`,
+                  animationDelay: `${m.delay}s`,
+                }}
+              />
+            ))}
           </div>
 
           {/* the singularity, only visible for VOID ---------------------- */}
-          <div className="void-core" aria-hidden="true" />
+          <div className="void-core" />
         </div>
 
         {/* Anchors + Core sit above the scene, only live while idle. The
