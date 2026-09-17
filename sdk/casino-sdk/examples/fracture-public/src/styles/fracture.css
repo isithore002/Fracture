@@ -413,6 +413,12 @@ body {
   border-radius: 50%;
   background: radial-gradient(circle at 35% 32%, #fff 0%, var(--accent) 55%, #5a3fa8 100%);
   box-shadow: 0 0 12px 3px rgba(185, 140, 255, 0.55);
+  /* WorldCanvas.tsx writes a new rotate+scale target on every pointermove
+     (the drag direction/speed lean) and clears it to neutral on drag
+     start/end — this transition is what turns those discrete targets into a
+     springy, physical-feeling lean instead of a snap, and gives the release
+     its "short spring return" for free. */
+  transition: transform 150ms var(--ease-break);
 }
 
 .fracture-core-inert {
@@ -761,7 +767,15 @@ body {
 .pick[aria-pressed='true'] {
   border-color: var(--accent);
   background: rgba(185, 140, 255, 0.14);
-  box-shadow: 0 0 0 1px var(--accent) inset;
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 4px 16px -4px rgba(185, 140, 255, 0.45);
+  /* The border alone read as "selected" without being obvious at a glance —
+     a small lift/scale on top of it makes the active card pop out of the
+     row instead of just being outlined. */
+  transform: translateY(-3px) scale(1.035);
+}
+
+.pick[aria-pressed='true']:hover:not(:disabled) {
+  transform: translateY(-4px) scale(1.035);
 }
 
 /* One-shot confirm flash the instant a prediction is locked in — brief and
@@ -808,10 +822,21 @@ body {
 
 .pick-note {
   margin: 10px 0 0;
-  min-height: 16px;
-  font-size: 12px;
-  color: var(--muted);
+  min-height: 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
   text-align: center;
+  text-shadow: 0 0 14px rgba(185, 140, 255, 0.55);
+  /* Re-keyed by `prediction` in App.tsx so this restarts on every selection
+     change instead of only playing once on mount — the tagline should read
+     as part of whichever card is currently active. */
+  animation: pick-note-in 320ms var(--ease-out) both;
+}
+
+@keyframes pick-note-in {
+  from { opacity: 0; transform: translateY(2px); text-shadow: 0 0 0 rgba(185, 140, 255, 0); }
+  to   { opacity: 1; transform: none; text-shadow: 0 0 14px rgba(185, 140, 255, 0.55); }
 }
 
 .wager-row {
@@ -871,6 +896,21 @@ body {
 .chip:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Betting the whole balance in one tap deserves more visual weight than "1"
+   or "2x" — it read as an afterthought next to the plain chip styling. */
+.chip-max {
+  border-color: rgba(185, 140, 255, 0.45);
+  background: rgba(185, 140, 255, 0.12);
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.chip-max:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(185, 140, 255, 0.2);
+  color: var(--ink);
 }
 
 .cta {

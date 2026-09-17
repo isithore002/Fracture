@@ -418,7 +418,9 @@ export function App() {
             </button>
           ))}
         </div>
-        <p className="pick-note">{REALITY[prediction].tagline}</p>
+        <p key={prediction} className="pick-note">
+          {REALITY[prediction].tagline}
+        </p>
       </section>
 
       <section className="panel">
@@ -447,7 +449,7 @@ export function App() {
           </button>
           <button
             type="button"
-            className="chip"
+            className="chip chip-max"
             disabled={busy || balance === undefined}
             onClick={() => balance !== undefined && setWagerInput(formatUnits(balance, decimals))}
           >

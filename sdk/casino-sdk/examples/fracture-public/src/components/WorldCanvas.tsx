@@ -63,6 +63,24 @@ const ANCHOR_POS: Record<Reality, { left: number; top: number }> = {
 const LOCK_THRESHOLD = 0.55;
 
 /**
+ * Fraction of the frame's shorter side that counts as "close enough" to an
+ * anchor. Generous on purpose — a jam player should feel pulled toward a
+ * target well before landing dead-centre, not have to pixel-hunt.
+ */
+const CAPTURE_RADIUS_FACTOR = 0.29;
+
+/**
+ * Caps on the Core's own directional lean while dragging (independent of the
+ * world-lean toward an anchor) — a brisk drag (~3 px/ms between pointermove
+ * events, a plausible fast flick) should reach the cap; a slow, deliberate
+ * drag should barely tilt at all.
+ */
+const CORE_TILT_MAX_DEG = 15;
+const CORE_TILT_SENSITIVITY = 5; // deg per (px/ms) of horizontal speed
+const CORE_STRETCH_MAX = 0.16;
+const CORE_STRETCH_SENSITIVITY = 0.055; // stretch per (px/ms) of overall speed
+
+/**
  * A small, capped "lean" toward the nearest anchor while dragging — a preview
  * of that reality's signature motion, scaled far down from the real break
  * transforms in fracture.css so it reads as a hint, not the transformation
@@ -122,6 +140,7 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
   const frameRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const coreRef = useRef<HTMLDivElement>(null);
+  const dotRef = useRef<HTMLSpanElement>(null);
   const anchorRefs = useRef<Record<Reality, HTMLDivElement | null>>({
     0: null,
     1: null,
@@ -133,7 +152,15 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
   const dragging = useRef(false);
   const nearest = useRef<{ reality: Reality; intensity: number }>({ reality: selected, intensity: 0 });
   const wasLockable = useRef(false);
+  const lastPointer = useRef<{ x: number; y: number; t: number } | null>(null);
   const [hasDragged, setHasDragged] = useState(false);
+
+  /** Neutral orientation — called on drag start/end so the spring-back
+   *  transition (defined in CSS on `.fracture-core-dot`) animates the return
+   *  instead of the dot just sitting mid-tilt between gestures. */
+  const resetDotLean = useCallback(() => {
+    if (dotRef.current) dotRef.current.style.transform = '';
+  }, []);
 
   const clearLean = useCallback(() => {
     if (stageRef.current) {
@@ -176,11 +203,31 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
     core.style.left = `${(x / rect.width) * 100}%`;
     core.style.top = `${(y / rect.height) * 100}%`;
 
+    // Directional lean on the Core itself — separate from the world-lean
+    // below, and the point of it: the *cursor* should feel the pull, not
+    // just the scene. A brisk drag tilts and stretches the dot in the
+    // direction of travel; a slow, deliberate drag barely moves it. The
+    // spring-back to neutral on pause/release comes for free from the CSS
+    // transition already on `.fracture-core-dot` — this only ever writes a
+    // target, never animates it directly.
+    const now = performance.now();
+    if (dotRef.current && lastPointer.current) {
+      const dt = Math.max(1, now - lastPointer.current.t);
+      const dx = clientX - lastPointer.current.x;
+      const dy = clientY - lastPointer.current.y;
+      const vx = dx / dt;
+      const speed = Math.hypot(dx, dy) / dt;
+      const tilt = Math.max(-CORE_TILT_MAX_DEG, Math.min(CORE_TILT_MAX_DEG, vx * CORE_TILT_SENSITIVITY));
+      const stretch = Math.max(0, Math.min(CORE_STRETCH_MAX, speed * CORE_STRETCH_SENSITIVITY));
+      dotRef.current.style.transform = `rotate(${tilt.toFixed(2)}deg) scale(${(1 + stretch).toFixed(3)}, ${(1 - stretch * 0.5).toFixed(3)})`;
+    }
+    lastPointer.current = { x: clientX, y: clientY, t: now };
+
     // Distance to each anchor, measured against the actually-rendered anchor
     // elements rather than the abstract percentages, so hit-testing is exact
     // regardless of the frame's real on-screen size (phone vs. desktop vs.
     // the compact iframe embed).
-    const captureRadius = 0.24 * Math.min(rect.width, rect.height);
+    const captureRadius = CAPTURE_RADIUS_FACTOR * Math.min(rect.width, rect.height);
     let best: { reality: Reality; intensity: number } = { reality: selected, intensity: 0 };
     for (const id of REALITIES) {
       const anchorEl = anchorRefs.current[id];
@@ -216,6 +263,8 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
     dragging.current = false;
     stopCoreHum();
     clearLean();
+    resetDotLean();
+    lastPointer.current = null;
 
     const { reality, intensity } = nearest.current;
     const core = coreRef.current;
@@ -240,7 +289,7 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
       playDragFizzle();
       restAtSelected();
     }
-  }, [onLock, clearLean, restAtSelected]);
+  }, [onLock, clearLean, resetDotLean, restAtSelected]);
 
   // Listeners live on `window` for the whole component lifetime rather than
   // being attached/removed per drag — they no-op via the `dragging` ref when
@@ -273,6 +322,7 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
       dragging.current = true;
       wasLockable.current = false;
       nearest.current = { reality: selected, intensity: 0 };
+      lastPointer.current = null; // no lean on the very first sample of a drag
       startCoreHum(selected);
       setHasDragged(true); // hides the one-time hint text
       handleMove(e.clientX, e.clientY);
@@ -348,7 +398,7 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
               onPointerDown={handlePointerDown}
               style={{ left: `${ANCHOR_POS[selected].left}%`, top: `${ANCHOR_POS[selected].top}%` }}
             >
-              <span className="fracture-core-dot" />
+              <span ref={dotRef} className="fracture-core-dot" />
             </div>
 
             {!hasDragged && interactive && (
