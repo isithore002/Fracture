@@ -87,7 +87,14 @@ body {
 
 @media (min-width: 760px) {
   .app {
-    max-width: 1040px;
+    /* 1040px still left a very wide simulator/desktop viewport mostly empty
+       either side of a comparatively small game — this is a generous
+       ceiling, not a typical width, so the world genuinely gets to be the
+       "big screen" instead of a slightly-larger island in a lot of black
+       space. `.controls` has its own cap below, so on very wide viewports
+       essentially all of the extra room goes to the world, which is what
+       makes it read as big rather than just "more spread out". */
+    max-width: 1440px;
   }
 
   .layout {
@@ -103,7 +110,7 @@ body {
   .controls {
     flex: 1 1 0%;
     min-width: 320px;
-    max-width: 380px;
+    max-width: 420px;
   }
 }
 
