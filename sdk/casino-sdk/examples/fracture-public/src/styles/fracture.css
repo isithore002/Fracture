@@ -62,6 +62,51 @@ body {
   padding: 16px 16px 24px;
 }
 
+/* World (big) + controls (law cards + wager, grouped) — stacked on mobile,
+   the exact layout verified at 390px. From `--layout-bp` up, there's enough
+   width to stop wasting it on a narrow centered column, so this switches to
+   the same "big visual + compact control column" split the SDK's own
+   Coinflip reference example uses. Nothing here changes below the
+   breakpoint: `.layout`/`.controls` are just additional flex wrappers with
+   the same 14px gap `.app` already used between these sections. */
+.layout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.world-wrap {
+  position: relative;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 760px) {
+  .app {
+    max-width: 1040px;
+  }
+
+  .layout {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .world-wrap {
+    flex: 1.6 1 0%;
+    min-width: 0; /* let it shrink below its content size in a flex row */
+  }
+
+  .controls {
+    flex: 1 1 0%;
+    min-width: 320px;
+    max-width: 380px;
+  }
+}
+
 .topbar {
   display: flex;
   align-items: baseline;

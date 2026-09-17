@@ -352,134 +352,147 @@ export function App() {
         </div>
       </header>
 
-      <div style={{ position: 'relative' }}>
-        <WorldCanvas
-          phase={worldPhase}
-          outcome={shownOutcome}
-          selected={prediction}
-          interactive={worldPhase === 'idle'}
-          onLock={pick}
-        />
+      {/*
+        Two regions below the header: the world (big, dominant) and the
+        controls (law cards + wager, grouped together) — stacked on mobile,
+        side by side once there's enough width to actually use, the same
+        split the SDK's own Coinflip reference example uses (big visual one
+        side, compact control column the other) instead of a single narrow
+        centered column with dead space either side of it on a wide viewport.
+      */}
+      <div className="layout">
+        <div className="world-wrap">
+          <WorldCanvas
+            phase={worldPhase}
+            outcome={shownOutcome}
+            selected={prediction}
+            interactive={worldPhase === 'idle'}
+            onLock={pick}
+          />
 
-        {round && (round.status === 'opening' || round.status === 'waiting') && (
-          <p className="status">
-            <span className="dots">Reality is deciding</span>
-          </p>
-        )}
-
-        {round?.status === 'settled' && round.result && (
-          <div className={`result ${round.result.won ? 'win' : 'lose'}`}>
-            <p className="result-headline">
-              {REALITY[round.result.outcome].name} broke
+          {round && (round.status === 'opening' || round.status === 'waiting') && (
+            <p className="status">
+              <span className="dots">Reality is deciding</span>
             </p>
-            <p className="result-detail">
-              {round.result.won ? (
+          )}
+
+          {round?.status === 'settled' && round.result && (
+            <div className={`result ${round.result.won ? 'win' : 'lose'}`}>
+              <p className="result-headline">
+                {REALITY[round.result.outcome].name} broke
+              </p>
+              <p className="result-detail">
+                {round.result.won ? (
+                  <>
+                    You called it —{' '}
+                    <span className="amount amount-win">
+                      +{fmt(round.payout ?? 0n)} {symbol}
+                    </span>{' '}
+                    at {multiplierOf(round.result.prediction).toFixed(4)}&times;
+                  </>
+                ) : (
+                  <>
+                    You called {REALITY[round.result.prediction].name} —{' '}
+                    <span className="amount amount-lose">
+                      &minus;{fmt(round.wager)} {symbol}
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="controls">
+          <section className="panel">
+            <p className="section-label">Which law breaks next?</p>
+            <p className="section-hint">Drag the core above, or tap a card:</p>
+            <div className="picks">
+              {REALITIES.map(id => (
+                <button
+                  key={id}
+                  type="button"
+                  // Brief one-shot flash the instant this prediction is locked
+                  // in, distinct from the persistent aria-pressed selection
+                  // styling.
+                  className={`pick${prediction === id && round?.status === 'opening' ? ' locking' : ''}`}
+                  aria-pressed={prediction === id}
+                  disabled={busy}
+                  onClick={() => pick(id)}
+                >
+                  <span className="pick-glyph" aria-hidden="true">
+                    {GLYPH[id]}
+                  </span>
+                  <span className="pick-name">{REALITY[id].name}</span>
+                  <span className="pick-mult">{multiplierOf(id).toFixed(2)}&times;</span>
+                  <span className="pick-chance">{chanceOf(id)}%</span>
+                </button>
+              ))}
+            </div>
+            <p key={prediction} className="pick-note">
+              {REALITY[prediction].tagline}
+            </p>
+          </section>
+
+          <section className="panel">
+            <p className="section-label">Wager</p>
+            <div className="wager-row">
+              <div className="wager-field">
+                <input
+                  inputMode="decimal"
+                  value={wagerInput}
+                  disabled={busy}
+                  onChange={e => setWagerInput(e.target.value)}
+                  aria-label={`Wager in ${symbol}`}
+                />
+                <span className="unit">{symbol}</span>
+              </div>
+              <button type="button" className="chip" disabled={busy} onClick={() => setWagerInput('1.00')}>
+                1
+              </button>
+              <button
+                type="button"
+                className="chip"
+                disabled={busy}
+                onClick={() => setWagerInput(v => String(Math.max(0, Number(v || '0') * 2)))}
+              >
+                2&times;
+              </button>
+              <button
+                type="button"
+                className="chip chip-max"
+                disabled={busy || balance === undefined}
+                onClick={() => balance !== undefined && setWagerInput(formatUnits(balance, decimals))}
+              >
+                Max
+              </button>
+            </div>
+
+            {round?.status === 'settled' ? (
+              <button type="button" className="cta" onClick={replay}>
+                Shift again
+              </button>
+            ) : (
+              <button type="button" className="cta" disabled={!canBet} onClick={() => void submit()}>
+                {busy ? 'Breaking…' : `Break ${REALITY[prediction].name}`}
+              </button>
+            )}
+
+            <p className="payout-preview">
+              {wager ? (
                 <>
-                  You called it —{' '}
-                  <span className="amount amount-win">
-                    +{fmt(round.payout ?? 0n)} {symbol}
-                  </span>{' '}
-                  at {multiplierOf(round.result.prediction).toFixed(4)}&times;
+                  Pays <strong>{fmt(potential)} {symbol}</strong> at {multiplierOf(prediction).toFixed(4)}&times; &middot;{' '}
+                  {chanceOf(prediction)}% chance
                 </>
               ) : (
-                <>
-                  You called {REALITY[round.result.prediction].name} —{' '}
-                  <span className="amount amount-lose">
-                    &minus;{fmt(round.wager)} {symbol}
-                  </span>
-                </>
+                'Enter a wager'
               )}
             </p>
-          </div>
-        )}
+
+            {error && <p className="error">{error}</p>}
+          </section>
+        </div>
       </div>
-
-      <section className="panel">
-        <p className="section-label">Which law breaks next?</p>
-        <p className="section-hint">Drag the core above, or tap a card:</p>
-        <div className="picks">
-          {REALITIES.map(id => (
-            <button
-              key={id}
-              type="button"
-              // Brief one-shot flash the instant this prediction is locked in,
-              // distinct from the persistent aria-pressed selection styling.
-              className={`pick${prediction === id && round?.status === 'opening' ? ' locking' : ''}`}
-              aria-pressed={prediction === id}
-              disabled={busy}
-              onClick={() => pick(id)}
-            >
-              <span className="pick-glyph" aria-hidden="true">
-                {GLYPH[id]}
-              </span>
-              <span className="pick-name">{REALITY[id].name}</span>
-              <span className="pick-mult">{multiplierOf(id).toFixed(2)}&times;</span>
-              <span className="pick-chance">{chanceOf(id)}%</span>
-            </button>
-          ))}
-        </div>
-        <p key={prediction} className="pick-note">
-          {REALITY[prediction].tagline}
-        </p>
-      </section>
-
-      <section className="panel">
-        <p className="section-label">Wager</p>
-        <div className="wager-row">
-          <div className="wager-field">
-            <input
-              inputMode="decimal"
-              value={wagerInput}
-              disabled={busy}
-              onChange={e => setWagerInput(e.target.value)}
-              aria-label={`Wager in ${symbol}`}
-            />
-            <span className="unit">{symbol}</span>
-          </div>
-          <button type="button" className="chip" disabled={busy} onClick={() => setWagerInput('1.00')}>
-            1
-          </button>
-          <button
-            type="button"
-            className="chip"
-            disabled={busy}
-            onClick={() => setWagerInput(v => String(Math.max(0, Number(v || '0') * 2)))}
-          >
-            2&times;
-          </button>
-          <button
-            type="button"
-            className="chip chip-max"
-            disabled={busy || balance === undefined}
-            onClick={() => balance !== undefined && setWagerInput(formatUnits(balance, decimals))}
-          >
-            Max
-          </button>
-        </div>
-
-        {round?.status === 'settled' ? (
-          <button type="button" className="cta" onClick={replay}>
-            Shift again
-          </button>
-        ) : (
-          <button type="button" className="cta" disabled={!canBet} onClick={() => void submit()}>
-            {busy ? 'Breaking…' : `Break ${REALITY[prediction].name}`}
-          </button>
-        )}
-
-        <p className="payout-preview">
-          {wager ? (
-            <>
-              Pays <strong>{fmt(potential)} {symbol}</strong> at {multiplierOf(prediction).toFixed(4)}&times; &middot;{' '}
-              {chanceOf(prediction)}% chance
-            </>
-          ) : (
-            'Enter a wager'
-          )}
-        </p>
-
-        {error && <p className="error">{error}</p>}
-      </section>
 
       <p className="footnote">
         95.00% RTP on every outcome, fixed by construction: payout = wager &times; 95 / weight, so
