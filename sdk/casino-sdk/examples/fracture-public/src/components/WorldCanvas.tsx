@@ -338,12 +338,18 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
               </div>
             ))}
 
+            {/* The pointer-handling box is 44px (a real touch target) even
+                though the visible orb inside it stays a small 22px — small
+                visual, big invisible grab zone, the standard fix for "the
+                thing you actually need to hit with a finger is too small". */}
             <div
               ref={coreRef}
               className={`fracture-core${interactive ? '' : ' fracture-core-inert'}`}
               onPointerDown={handlePointerDown}
               style={{ left: `${ANCHOR_POS[selected].left}%`, top: `${ANCHOR_POS[selected].top}%` }}
-            />
+            >
+              <span className="fracture-core-dot" />
+            </div>
 
             {!hasDragged && interactive && (
               <p className="drag-hint">Drag the core to a law — hold it, then let go to lock in</p>

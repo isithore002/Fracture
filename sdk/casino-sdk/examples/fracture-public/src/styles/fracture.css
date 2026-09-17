@@ -384,14 +384,18 @@ body {
   100% { box-shadow: 0 0 6px 2px rgba(185, 140, 255, 0.4); }
 }
 
+/* 44px hit target (the guideline minimum for a finger) even though the
+   visible orb inside stays a small, elegant 22px — position/pointer-events
+   live here; the gradient/glow live on the inner dot below, so growing the
+   grab zone never grows what the player actually sees. */
 .fracture-core {
   position: absolute;
-  width: 22px;
-  height: 22px;
-  margin: -11px 0 0 -11px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 32%, #fff 0%, var(--accent) 55%, #5a3fa8 100%);
-  box-shadow: 0 0 12px 3px rgba(185, 140, 255, 0.55);
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: grab;
   pointer-events: auto;
   touch-action: none; /* dragging the core must never scroll the page */
@@ -402,10 +406,22 @@ body {
   cursor: grabbing;
 }
 
+.fracture-core-dot {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, #fff 0%, var(--accent) 55%, #5a3fa8 100%);
+  box-shadow: 0 0 12px 3px rgba(185, 140, 255, 0.55);
+}
+
 .fracture-core-inert {
   pointer-events: none;
-  opacity: 0.55;
   cursor: default;
+}
+
+.fracture-core-inert .fracture-core-dot {
+  opacity: 0.55;
 }
 
 /* Only present while the Core is settling into place without direct pointer

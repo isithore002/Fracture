@@ -111,6 +111,29 @@ async function main() {
   const restDist = Math.hypot(coreCenterAfter.x - timeAnchorCenter.x, coreCenterAfter.y - timeAnchorCenter.y);
   ok(restDist < 6, 'the Core snapped back to rest at the still-locked anchor (Time)', `center offset ${restDist.toFixed(1)}px`);
 
+  // --- 2b. touch target: grab from an offset point, not the exact centre ---
+  console.log('\n2b. Core hit target is a real 44px zone, not just the 22px visual dot');
+  const coreBoxTT = await page.locator('.fracture-core').boundingBox();
+  const coreCenterTT = { x: coreBoxTT.x + coreBoxTT.width / 2, y: coreBoxTT.y + coreBoxTT.height / 2 };
+  // 15px off-centre: outside the old 11px visual radius, inside the new 22px
+  // hit-box radius — this is exactly the finger-imprecision case the fix is
+  // for. If the hitbox were still only the visual dot, this press would miss.
+  const offset = { x: coreCenterTT.x + 15, y: coreCenterTT.y - 15 };
+  const gravityAnchor = await page.locator('.anchor-gravity').boundingBox();
+  const gravityCenter = { x: gravityAnchor.x + gravityAnchor.width / 2, y: gravityAnchor.y + gravityAnchor.height / 2 };
+
+  await page.mouse.move(offset.x, offset.y);
+  await page.mouse.down();
+  await page.mouse.move(gravityCenter.x, gravityCenter.y, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  const offsetGrabLocked = await page.locator('.pick[aria-pressed="true"] .pick-name').innerText();
+  ok(
+    offsetGrabLocked === 'Gravity',
+    'pressing 15px off the visual dot centre still grabs and drags the core',
+    `locked "${offsetGrabLocked}"`,
+  );
+
   // --- 3. drag onto Void, then place a real bet through it ------------------
   console.log('\n3. Lock Void via drag, then place a real bet');
   await dragCoreTo(page, '.anchor-void');
