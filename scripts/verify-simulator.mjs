@@ -84,6 +84,13 @@ async function main() {
     await frame.locator('.result').waitFor({ timeout: 20000 });
     const headline = (await frame.locator('.result-headline').innerText()).trim();
     const detail = (await frame.locator('.result-detail').innerText()).trim();
+    const won = detail.includes('You called it');
+
+    // The host withholds winnings from its balance display until the game
+    // calls `revealOutcome`, and that call only happens once the result
+    // presentation ends — so read the balance AFTER the banner, and give the
+    // push a moment to land.
+    await page.waitForTimeout(600);
     const after = (await frame.locator('.balance').innerText()).trim();
 
     ok(
@@ -91,6 +98,27 @@ async function main() {
       `round ${i + 1}: called ${label.padEnd(7)} -> ${String(broke).padEnd(7)} | ${detail}`,
       `balance ${before.replace(/\s+/g, ' ')} -> ${after.replace(/\s+/g, ' ')}`,
     );
+
+    // The assertion that was missing, and that let a real bug through: a win
+    // must actually INCREASE the displayed balance. Previously this only
+    // checked that a round completed, so a win that silently paid nothing
+    // still passed — the payout was final on-chain, but the player saw only
+    // the wager leave.
+    const beforeNum = Number(before.replace(/[^\d.]/g, ''));
+    const afterNum = Number(after.replace(/[^\d.]/g, ''));
+    if (won) {
+      ok(
+        afterNum > beforeNum,
+        `round ${i + 1}: a WIN increased the displayed balance`,
+        `${beforeNum} -> ${afterNum} (net ${(afterNum - beforeNum).toFixed(4)})`,
+      );
+    } else {
+      ok(
+        afterNum < beforeNum,
+        `round ${i + 1}: a loss decreased the displayed balance`,
+        `${beforeNum} -> ${afterNum} (net ${(afterNum - beforeNum).toFixed(4)})`,
+      );
+    }
 
     await frame.locator('.cta').click();
     await frame.locator('.world:not([data-break])').waitFor({ timeout: 10000 });

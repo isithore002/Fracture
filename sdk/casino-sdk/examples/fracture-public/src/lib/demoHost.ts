@@ -70,6 +70,8 @@ type DemoSession = {
   gameState?: `0x${string}`;
   randomness?: `0x${string}`;
   isSettled: boolean;
+  /** Winnings stay out of the displayed balance until `revealOutcome`. */
+  revealed: boolean;
 };
 
 export type DemoHost = {
@@ -132,6 +134,7 @@ export function createDemoHost(): DemoHost {
         phase: 1, // WAITING_RANDOMNESS
         payout: 0n,
         isSettled: false,
+        revealed: false,
       };
       nextId += 1;
       sessions.push(session);
@@ -164,7 +167,12 @@ export function createDemoHost(): DemoHost {
           ],
           [{ prediction, outcome, bucket, resolved: true, won, randomness }],
         );
-        balance += payout;
+        // Deliberately NOT credited here. The real host withholds winnings
+        // from its balance display between `openSession` and the game's
+        // `revealOutcome` call, so the balance can't spoil the outcome while
+        // the world is still breaking. Mirroring that here keeps demo mode
+        // honest: if the game forgot to call `revealOutcome`, the bug shows
+        // up in demo exactly as it would in production.
         push();
       }, DEMO_SETTLE_DELAY_MS);
 
@@ -176,8 +184,14 @@ export function createDemoHost(): DemoHost {
     async cancelStuckRandomness() {
       throw new Error('Not reachable in demo mode');
     },
-    async revealOutcome() {
-      /* no-op: the demo reveals as soon as it settles */
+    async revealOutcome({ sessionId }: { sessionId: string }) {
+      // Release the withheld winnings, the same way the real host does once
+      // the game says its result presentation has finished.
+      const session = sessions.find(s => s.sessionId === sessionId);
+      if (!session || session.revealed || session.payout === 0n) return;
+      session.revealed = true;
+      balance += session.payout;
+      push();
     },
     async reportContentSize() {
       /* no-op */

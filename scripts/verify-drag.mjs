@@ -161,6 +161,36 @@ async function main() {
   await page.locator('.fracture-core').waitFor({ timeout: 5000 });
   ok(true, 'core/anchors return once the world is idle again');
 
+  // --- 4b. a win must actually credit the balance in demo mode too ---------
+  // The demo host mirrors the real host: winnings are withheld from the
+  // displayed balance until the game calls `revealOutcome` at the end of its
+  // result presentation. Bet the highest-probability outcome repeatedly until
+  // one lands, then assert the balance really went UP.
+  console.log('\n4b. A winning round credits the balance (demo host)');
+  let sawWin = false;
+  for (let attempt = 0; attempt < 12 && !sawWin; attempt++) {
+    await page.locator('.pick').first().click(); // Gravity, 45%
+    const before = Number((await page.locator('.balance').innerText()).replace(/[^\d.]/g, ''));
+    await page.locator('.cta:not([disabled])').waitFor({ timeout: 10000 });
+    await page.locator('.cta').click();
+    await page.locator('.result').waitFor({ timeout: 20000 });
+    const detail = (await page.locator('.result-detail').innerText()).trim();
+    await page.waitForTimeout(400); // let the reveal's balance push land
+    const after = Number((await page.locator('.balance').innerText()).replace(/[^\d.]/g, ''));
+
+    if (detail.includes('You called it')) {
+      sawWin = true;
+      ok(
+        after > before,
+        'a win increases the demo balance (revealOutcome released the winnings)',
+        `${before} -> ${after} (net +${(after - before).toFixed(4)})`,
+      );
+    }
+    await page.locator('.cta').click(); // Shift again
+    await page.locator('.world:not([data-break])').waitFor({ timeout: 8000 });
+  }
+  if (!sawWin) ok(false, 'no Gravity win in 12 attempts at 45% (investigate)');
+
   // --- 5. hygiene ------------------------------------------------------------
   console.log('\n5. Hygiene');
   const overflow = await page.evaluate(

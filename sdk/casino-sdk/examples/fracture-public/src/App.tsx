@@ -80,6 +80,12 @@ type Round = {
    * so this key can go stale — `knownKeys` is what actually finds our row.
    */
   sessionKey?: string;
+  /**
+   * The host's real session id, read off the settled row. Needed for
+   * `revealOutcome` — without it the host keeps winnings hidden (see the
+   * reveal call in the settle sequence below).
+   */
+  sessionId?: string;
   /** Session keys that already existed when we opened, so we can spot ours. */
   knownKeys: string[];
   prediction: Reality;
@@ -135,6 +141,13 @@ export function App() {
   const holdTimer = useRef<number | undefined>(undefined);
   const settleTimer = useRef<number | undefined>(undefined);
   const roundSeq = useRef(1);
+  /**
+   * The reveal fires from inside a timeout chain, so it must not close over a
+   * `hostApi` from an older render — the SDK explicitly warns that a
+   * reconnect would leave that reference stale.
+   */
+  const hostApiRef = useRef(hostApi);
+  hostApiRef.current = hostApi;
   /** Round ids whose settlement has already been staged, so a repeat host
    *  snapshot push while we're mid-reveal doesn't restart the sequence or
    *  double-fire the outcome sound. */
@@ -206,6 +219,7 @@ export function App() {
 
     staged.current.add(round.id);
     const roundId = round.id;
+    const sessionId = row.sessionId;
     const elapsed = Date.now() - round.openedAt;
     const floorDelay = Math.max(0, MIN_ANTICIPATION_MS - elapsed);
 
@@ -213,7 +227,9 @@ export function App() {
     floorTimer.current = window.setTimeout(() => {
       // The silent beat: tension stops, nothing plays, the world holds still.
       setRound(current =>
-        current && current.id === roundId ? { ...current, status: 'holding', result, payout } : current,
+        current && current.id === roundId
+          ? { ...current, status: 'holding', result, payout, sessionId }
+          : current,
       );
 
       window.clearTimeout(holdTimer.current);
@@ -231,6 +247,19 @@ export function App() {
           );
           if (result.won) playWin();
           else playLose();
+
+          // The presentation is over, so tell the host to stop withholding
+          // the winnings. This is a REQUIRED part of the guest contract, not
+          // an optimisation: from `openSession` until this call the host
+          // clamps its balance displays so they can move down but never up,
+          // deliberately, so the top bar can't spoil the outcome before the
+          // world finishes breaking. Skip it and a win looks like the player
+          // simply lost their wager — the payout is already final on-chain,
+          // only its display is held back. Display-only, so a failure here
+          // must never surface as a betting error.
+          if (sessionId) {
+            void hostApiRef.current?.revealOutcome({ sessionId }).catch(() => {});
+          }
         }, BREAK_MS[result.outcome]);
       }, HOLD_MS);
     }, floorDelay);
