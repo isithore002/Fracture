@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { REALITIES, REALITY, type Reality } from '../lib/fracture';
 import {
   playCaptureReady,
@@ -26,6 +33,12 @@ type Props = {
   interactive: boolean;
   /** Fires on a successful drag-release — identical effect to tapping a card. */
   onLock: (reality: Reality) => void;
+  /**
+   * Accumulated per-law damage for this session (0..MAX_DAMAGE each). Exposed
+   * to CSS as custom properties so the stylesheet decides what "gravity has
+   * broken three times" looks like — this component just publishes the numbers.
+   */
+  damage: Record<Reality, number>;
 };
 
 const KEY: Record<Reality, string> = {
@@ -169,7 +182,7 @@ function leanStyle(outcome: Reality, intensity: number): { transform: string; fi
  * labeled cards already expose the identical action to keyboard/assistive
  * tech users.
  */
-export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: Props) {
+export function WorldCanvas({ phase, outcome, selected, interactive, onLock, damage }: Props) {
   const breaking = phase === 'breaking' || phase === 'settled';
   const breakKey = breaking && outcome !== null ? KEY[outcome] : undefined;
 
@@ -367,7 +380,20 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
   );
 
   return (
-    <div className="world" data-phase={phase} data-break={breakKey}>
+    <div
+      className="world"
+      data-phase={phase}
+      data-break={breakKey}
+      style={
+        {
+          '--dmg-gravity': damage[0],
+          '--dmg-time': damage[1],
+          '--dmg-scale': damage[2],
+          '--dmg-orbit': damage[3],
+          '--dmg-void': damage[4],
+        } as CSSProperties
+      }
+    >
       <div className="world-frame" ref={frameRef}>
         {/* The whole scene is decorative — the round's state is conveyed by
             the result banner and the prediction cards, both of which are
@@ -456,6 +482,12 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock }: P
             <div className="obj grass grass-b" />
             <div className="obj grass grass-c" />
             <div className="obj grass grass-d" />
+
+            {/* Permanent damage marks. Present in the DOM at all times and
+                driven entirely by the --dmg-* custom properties, so they cost
+                nothing at level 0 and never accumulate as extra elements. */}
+            <div className="scar scar-void" />
+            <div className="ghost ghost-time" />
           </div>
 
           {/* fireflies --------------------------------------------------- */}

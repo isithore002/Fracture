@@ -65,6 +65,36 @@ export function bucketToOutcome(bucket: number): Reality {
 }
 
 /**
+ * The inclusive bucket range an outcome owns, derived by cumulative sum of the
+ * same weights the contract uses — so this can never drift out of step with
+ * `bucketToOutcome` above.
+ *
+ * Used only to *explain* a settled result to the player (which roll came up,
+ * where their prediction's band sat). It is never consulted before the outcome
+ * is resolved and has no influence on the result.
+ */
+export function rangeOf(outcome: Reality): { start: number; end: number } {
+  let start = 0;
+  for (const id of REALITIES) {
+    const width = Number(REALITY[id].weight);
+    if (id === outcome) return { start, end: start + width - 1 };
+    start += width;
+  }
+  throw new Error(`unknown outcome ${outcome}`);
+}
+
+/**
+ * How far a roll landed outside a prediction's band, in buckets. 0 means the
+ * prediction hit. This reports the true distance — it is deliberately not
+ * massaged to make losses read as closer than they were.
+ */
+export function bucketsMissedBy(bucket: number, prediction: Reality): number {
+  const { start, end } = rangeOf(prediction);
+  if (bucket >= start && bucket <= end) return 0;
+  return bucket < start ? start - bucket : bucket - end;
+}
+
+/**
  * The contract's `bucketFromRandomness`, byte for byte: reject any byte >= 200
  * so all 100 buckets get exactly 2 preimages each, rehashing the seed rather
  * than reverting if a whole word is rejected.

@@ -700,14 +700,31 @@ body {
   to   { transform: translate3d(340px, 0, 0); }
 }
 
+/* The ambient loops fold the persistent-damage offsets in via var() rather
+   than being overridden by them. An element can only have one `transform`, so
+   if damage were applied as a separate rule the running animation would simply
+   win and the damage would be invisible. Reading the custom properties from
+   inside the keyframes lets a permanently-floating tree keep swaying. */
 @keyframes sway {
-  0%, 100% { transform: rotate(-1.6deg); }
-  50%      { transform: rotate(1.9deg); }
+  0%, 100% {
+    transform: translate3d(0, var(--dmg-y, 0px), 0) rotate(calc(-1.6deg + var(--dmg-rot, 0deg)))
+      scale(var(--dmg-scale-f, 1));
+  }
+  50% {
+    transform: translate3d(0, var(--dmg-y, 0px), 0) rotate(calc(1.9deg + var(--dmg-rot, 0deg)))
+      scale(var(--dmg-scale-f, 1));
+  }
 }
 
 @keyframes breathe {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50%      { transform: translate3d(0, -2px, 0); }
+  0%, 100% {
+    transform: translate3d(0, var(--dmg-y, 0px), 0) rotate(var(--dmg-rot, 0deg))
+      scale(var(--dmg-scale-f, 1));
+  }
+  50% {
+    transform: translate3d(0, calc(var(--dmg-y, 0px) - 2px), 0) rotate(var(--dmg-rot, 0deg))
+      scale(var(--dmg-scale-f, 1));
+  }
 }
 
 @keyframes flicker {
@@ -753,6 +770,129 @@ body {
 .world[data-phase='holding'] {
   animation: none;
   box-shadow: inset 0 0 90px 24px rgba(0, 0, 0, 0.72);
+}
+
+/* ================= PERSISTENT DAMAGE — the world remembers ================= */
+/*
+  Driven entirely by --dmg-gravity / --dmg-time / --dmg-scale / --dmg-orbit /
+  --dmg-void (each 0..5, published by WorldCanvas). Every effect below is
+  `max(0, level - threshold)`, which is what staggers the progression: at
+  gravity 1 only the loose debris lifts, at 2 the tree goes, at 3 the house
+  tilts off its footing, by 5 the whole plane has given up.
+
+  All of it is cosmetic. None of these properties touch odds, payout or the
+  contract — they only change what the same settled world looks like.
+*/
+
+.world {
+  --dmg-gravity: 0;
+  --dmg-time: 0;
+  --dmg-scale: 0;
+  --dmg-orbit: 0;
+  --dmg-void: 0;
+}
+
+/* --- gravity: things that came up never came back down --------------------- */
+
+.rock,
+.fence,
+.grass {
+  transform: translate3d(0, calc(max(0, var(--dmg-gravity)) * -7px), 0)
+    rotate(calc(max(0, var(--dmg-gravity)) * -1.4deg));
+}
+
+.tree {
+  --dmg-y: calc(max(0, var(--dmg-gravity) - 1) * -9px);
+  --dmg-rot: calc(max(0, var(--dmg-gravity) - 1) * -1.6deg);
+}
+
+.house {
+  --dmg-y: calc(max(0, var(--dmg-gravity) - 2) * -10px);
+  --dmg-rot: calc(max(0, var(--dmg-gravity) - 2) * 2.2deg);
+}
+
+/* By the last level even the ground has stopped holding on. */
+.ground {
+  transform: translate3d(0, calc(max(0, var(--dmg-gravity) - 3) * 6px), 0);
+}
+
+/* --- scale: some things never returned to their right size ---------------- */
+
+.tree {
+  --dmg-scale-f: calc(1 - max(0, var(--dmg-scale)) * 0.09);
+}
+
+.house {
+  --dmg-scale-f: calc(1 + max(0, var(--dmg-scale)) * 0.06);
+}
+
+.rock-a {
+  /* rock lift + a permanent size error, composed in one transform */
+  transform: translate3d(0, calc(max(0, var(--dmg-gravity)) * -7px), 0)
+    scale(calc(1 + max(0, var(--dmg-scale)) * 0.22));
+}
+
+/* --- orbit: the sky never levelled out again ------------------------------ */
+
+.layer-sky,
+.layer-far {
+  transform: rotate(calc(max(0, var(--dmg-orbit)) * 1.1deg));
+  transform-origin: 50% 90%;
+}
+
+.moon {
+  --dmg-orbit-shift: calc(max(0, var(--dmg-orbit)) * 3px);
+}
+
+/* --- time: colour drains and a rewound echo lingers ----------------------- */
+
+.layer-sky,
+.layer-ground {
+  filter: saturate(calc(1 - max(0, var(--dmg-time)) * 0.12))
+    hue-rotate(calc(max(0, var(--dmg-time)) * -4deg));
+}
+
+/* A ghost of the house, a few frames behind reality. Invisible until Time has
+   broken at least twice, so it reads as accumulated damage rather than noise. */
+.ghost-time {
+  position: absolute;
+  bottom: 24%;
+  left: 52%;
+  width: 25.7cqw;
+  height: 21.8cqw;
+  border-radius: 1cqw;
+  background: linear-gradient(180deg, rgba(200, 190, 240, 0.5) 0%, transparent 70%);
+  opacity: calc(max(0, var(--dmg-time) - 1) * 0.16);
+  transform: translate3d(calc(max(0, var(--dmg-time) - 1) * -5px), 0, 0);
+  filter: blur(0.6cqw);
+  pointer-events: none;
+}
+
+/* --- void: a scar that does not close ------------------------------------- */
+
+.scar-void {
+  position: absolute;
+  bottom: 12%;
+  left: 50%;
+  width: calc(max(0, var(--dmg-void)) * 9cqw);
+  height: calc(max(0, var(--dmg-void)) * 1.6cqw);
+  margin-left: calc(max(0, var(--dmg-void)) * -4.5cqw);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, #000 0%, rgba(0, 0, 0, 0.75) 45%, transparent 72%);
+  opacity: calc(max(0, var(--dmg-void)) * 0.24);
+  box-shadow: 0 0 calc(max(0, var(--dmg-void)) * 2cqw) rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* The whole frame darkens as the void takes hold. */
+.world-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 70%, rgba(0, 0, 0, 0.55) 0%, transparent 65%);
+  opacity: calc(max(0, var(--dmg-void)) * 0.16);
 }
 
 /* ===================== THE FIVE BREAKS ==================================== */
@@ -1256,6 +1396,94 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ------------------------------------------------------------- roll readout --
+   Shows the actual VRF bucket against the real band boundaries. Deliberately
+   plain: the bands are drawn to true scale and the marker sits exactly where
+   the roll landed, so a distant miss looks distant. No emphasis is added for
+   near results — the information is the point, not the tease. */
+
+.roll {
+  position: relative;
+  margin: 10px auto 0;
+  max-width: 340px;
+}
+
+.roll-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.roll-label {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(154, 146, 184, 0.75);
+}
+
+.roll-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.roll-track {
+  position: relative;
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.roll-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(160, 145, 220, 0.16);
+  border-right: 1px solid rgba(7, 6, 13, 0.85);
+}
+
+/* The band the player backed. */
+.roll-band-mine {
+  background: rgba(185, 140, 255, 0.55);
+}
+
+/* The band that actually won. */
+.roll-band-won {
+  background: rgba(94, 230, 208, 0.4);
+}
+
+/* Backed it AND it won — one band, both meanings. */
+.roll-band-mine.roll-band-won {
+  background: linear-gradient(180deg, rgba(94, 230, 208, 0.75), rgba(185, 140, 255, 0.6));
+}
+
+.roll-marker {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.7);
+}
+
+.roll-note {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: rgba(154, 146, 184, 0.9);
+  font-variant-numeric: tabular-nums;
+}
+
+.roll-note strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .status {
   position: absolute;
   inset: auto 0 0 0;
@@ -1323,4 +1551,48 @@ body {
 @media (max-width: 380px) {
   .pick-name { font-size: 10px; }
   .pick-glyph { font-size: 17px; }
+}
+
+/* --------------------------------------------------------- damage meter -- */
+
+.damage-panel {
+  padding: 12px 14px;
+}
+
+.damage-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.damage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.damage-name {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.damage-bars {
+  display: flex;
+  gap: 3px;
+}
+
+.damage-pip {
+  width: 16px;
+  height: 5px;
+  border-radius: 2px;
+  background: rgba(160, 145, 220, 0.16);
+}
+
+.damage-pip.on {
+  background: linear-gradient(90deg, var(--accent) 0%, #7d5bff 100%);
+  box-shadow: 0 0 6px rgba(185, 140, 255, 0.5);
 }

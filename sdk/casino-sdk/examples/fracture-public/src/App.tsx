@@ -8,17 +8,19 @@ import { useCasinoHost } from './lib/useCasinoHost';
 import {
   REALITIES,
   REALITY,
+  bucketFromRandomness,
+  bucketToOutcome,
   chanceOf,
   decodeGameState,
   encodeGameData,
   isTerminalPhase,
   multiplierOf,
-  outcomeFromRandomness,
   payoutFor,
   type FractureResult,
   type Reality,
 } from './lib/fracture';
 import { WorldCanvas, type WorldPhase } from './components/WorldCanvas';
+import { RollReadout } from './components/RollReadout';
 import {
   playAnticipation,
   playLock,
@@ -70,6 +72,13 @@ const HOLD_MS = 340;
 const LOCK_MS = 460;
 /** Cadence of the soft "still waiting" pulse, matched to the CSS tension loop. */
 const TENSION_PULSE_MS = 1400;
+
+/**
+ * Damage saturates here. A cap is what keeps persistence from turning into
+ * visual noise: the world can look thoroughly wrecked, but it can't accumulate
+ * forever and it can't get unreadable.
+ */
+export const MAX_DAMAGE = 5;
 
 type Round = {
   /** Local id for this round; never compared against host data. */
@@ -135,6 +144,19 @@ export function App() {
   const [wagerInput, setWagerInput] = useState('1.00');
   const [round, setRound] = useState<Round | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Reality doesn't heal. Every law that breaks leaves a permanent mark for
+   * the rest of the session, so the world the player is looking at is a record
+   * of what they've been through rather than a scene that resets each round.
+   *
+   * Stored as one level per law (0..MAX_DAMAGE) rather than a growing list of
+   * damage objects — the renderer interprets five numbers, so a 200-round
+   * session costs exactly as much to draw as a 2-round one.
+   *
+   * Purely cosmetic and purely local: this never reaches the contract, the
+   * wager, the odds or the payout.
+   */
+  const [damage, setDamage] = useState<Record<Reality, number>>({ 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 });
   /** Reveal-pacing timers, in the order they fire: lock -> floor -> hold -> settle. */
   const lockTimer = useRef<number | undefined>(undefined);
   const floorTimer = useRef<number | undefined>(undefined);
@@ -196,11 +218,15 @@ export function App() {
     const fromRandomness =
       !decoded && row.raw.randomness && BigInt(row.raw.randomness) !== 0n
         ? ((): FractureResult => {
-            const outcome = outcomeFromRandomness(row.raw.randomness as `0x${string}`);
+            // Derive the bucket the same way the contract does rather than
+            // leaving it unknown — the roll is what the result screen shows
+            // the player, so this path must produce it too.
+            const bucket = bucketFromRandomness(row.raw.randomness as `0x${string}`);
+            const outcome = bucketToOutcome(bucket);
             return {
               prediction: round.prediction,
               outcome,
-              bucket: -1,
+              bucket,
               won: outcome === round.prediction,
               randomness: row.raw.randomness as `0x${string}`,
             };
@@ -247,6 +273,15 @@ export function App() {
           );
           if (result.won) playWin();
           else playLose();
+
+          // The world keeps the scar. Note this tracks `result.outcome` — the
+          // law that actually broke — not the player's prediction: reality was
+          // damaged regardless of whether they called it right.
+          setDamage(prev =>
+            prev[result.outcome] >= MAX_DAMAGE
+              ? prev
+              : { ...prev, [result.outcome]: prev[result.outcome] + 1 },
+          );
 
           // The presentation is over, so tell the host to stop withholding
           // the winnings. This is a REQUIRED part of the guest contract, not
@@ -355,6 +390,8 @@ export function App() {
     return Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 4 }) : s;
   };
 
+  const totalDamage = REALITIES.reduce<number>((sum, id) => sum + damage[id], 0);
+
   const canBet =
     !!hostApi &&
     !!wager &&
@@ -397,6 +434,7 @@ export function App() {
             selected={prediction}
             interactive={worldPhase === 'idle'}
             onLock={pick}
+            damage={damage}
           />
 
           {round && (round.status === 'opening' || round.status === 'waiting') && (
@@ -428,6 +466,14 @@ export function App() {
                   </>
                 )}
               </p>
+
+              {round.result.bucket >= 0 && (
+                <RollReadout
+                  bucket={round.result.bucket}
+                  prediction={round.result.prediction}
+                  outcome={round.result.outcome}
+                />
+              )}
             </div>
           )}
         </div>
@@ -462,6 +508,31 @@ export function App() {
               {REALITY[prediction].tagline}
             </p>
           </section>
+
+          {/* What this session has done to the world. Only appears once
+              something has actually broken, so a first-time player isn't
+              shown an empty meter they have no context for. */}
+          {totalDamage > 0 && (
+            <section className="panel damage-panel">
+              <p className="section-label">Damage to your reality</p>
+              <ul className="damage-list">
+                {REALITIES.map(id => (
+                  <li key={id} className="damage-row">
+                    <span className="damage-name">{REALITY[id].name}</span>
+                    <span
+                      className="damage-bars"
+                      role="img"
+                      aria-label={`${REALITY[id].name} broken ${damage[id]} of ${MAX_DAMAGE} times`}
+                    >
+                      {Array.from({ length: MAX_DAMAGE }, (_, i) => (
+                        <span key={i} className={`damage-pip${i < damage[id] ? ' on' : ''}`} />
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section className="panel">
             <p className="section-label">Wager</p>
