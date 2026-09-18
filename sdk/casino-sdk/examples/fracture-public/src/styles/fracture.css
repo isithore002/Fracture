@@ -903,16 +903,16 @@ body {
 /* --- GRAVITY: everything lifts and floats up, overshooting off the top ----- */
 
 .world[data-break='gravity'] .layer-ground .obj {
-  animation: lift 2.1s var(--ease-break) forwards;
+  animation: lift 1.4s var(--ease-break) forwards;
 }
 
-.world[data-break='gravity'] .house { animation-delay: 0.06s; }
-.world[data-break='gravity'] .rock-a { animation-delay: 0.18s; }
-.world[data-break='gravity'] .rock-b { animation-delay: 0.26s; }
-.world[data-break='gravity'] .fence { animation-delay: 0.12s; }
+.world[data-break='gravity'] .house { animation-delay: 0.04s; }
+.world[data-break='gravity'] .rock-a { animation-delay: 0.12s; }
+.world[data-break='gravity'] .rock-b { animation-delay: 0.17s; }
+.world[data-break='gravity'] .fence { animation-delay: 0.08s; }
 
 .world[data-break='gravity'] .ground {
-  animation: ground-crack 2.1s var(--ease-out) forwards;
+  animation: ground-crack 1.4s var(--ease-out) forwards;
 }
 
 @keyframes lift {
@@ -959,7 +959,7 @@ body {
 }
 
 .world[data-break='time'] .world-stage {
-  animation: rewind-jitter 2.1s steps(14) forwards;
+  animation: rewind-jitter 1.4s steps(14) forwards;
 }
 
 @keyframes rewind-sweep {
@@ -976,31 +976,31 @@ body {
 /* --- SCALE: some objects balloon, others shrink to nothing ---------------- */
 
 .world[data-break='scale'] .house {
-  animation: grow-huge 2.1s var(--ease-break) forwards;
+  animation: grow-huge 1.4s var(--ease-break) forwards;
   transform-origin: 50% 100%;
 }
 
 .world[data-break='scale'] .tree {
-  animation: shrink-tiny 2.1s var(--ease-break) forwards;
+  animation: shrink-tiny 1.4s var(--ease-break) forwards;
   transform-origin: 50% 100%;
 }
 
 .world[data-break='scale'] .moon {
-  animation: grow-moon 2.1s var(--ease-break) 0.1s forwards;
+  animation: grow-moon 1.4s var(--ease-break) 0.07s forwards;
 }
 
 .world[data-break='scale'] .rock-a {
-  animation: grow-huge 2.1s var(--ease-break) 0.2s forwards;
+  animation: grow-huge 1.4s var(--ease-break) 0.13s forwards;
   transform-origin: 50% 100%;
 }
 
 .world[data-break='scale'] .rock-b {
-  animation: shrink-tiny 2.1s var(--ease-break) 0.14s forwards;
+  animation: shrink-tiny 1.4s var(--ease-break) 0.09s forwards;
   transform-origin: 50% 100%;
 }
 
 .world[data-break='scale'] .fence {
-  animation: shrink-tiny 2.1s var(--ease-break) 0.26s forwards;
+  animation: shrink-tiny 1.4s var(--ease-break) 0.17s forwards;
   transform-origin: 50% 100%;
 }
 
@@ -1024,11 +1024,11 @@ body {
 /* --- ORBIT: the whole world swings around an off-centre point -------------- */
 
 .world[data-break='orbit'] .world-stage {
-  animation: orbit-swing 2.4s var(--ease-out) forwards;
+  animation: orbit-swing 1.6s var(--ease-out) forwards;
 }
 
 .world[data-break='orbit'] .moon {
-  animation: moon-counter 2.4s var(--ease-out) forwards;
+  animation: moon-counter 1.6s var(--ease-out) forwards;
 }
 
 @keyframes orbit-swing {
@@ -1047,15 +1047,15 @@ body {
 /* --- VOID: everything is pulled into a point, then the lights go out ------- */
 
 .world[data-break='void'] .world-stage {
-  animation: implode 2.6s cubic-bezier(0.6, 0, 0.9, 0.2) forwards;
+  animation: implode 1.9s cubic-bezier(0.6, 0, 0.9, 0.2) forwards;
 }
 
 .world[data-break='void'] .void-core {
-  animation: singularity 2.6s ease-in forwards;
+  animation: singularity 1.9s ease-in forwards;
 }
 
 .world[data-break='void'] .world-frame {
-  animation: black-out 2.6s ease-in forwards;
+  animation: black-out 1.9s ease-in forwards;
 }
 
 @keyframes implode {

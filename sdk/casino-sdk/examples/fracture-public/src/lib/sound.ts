@@ -206,17 +206,17 @@ export function playSelect() {
 export function playOutcome(outcome: Reality) {
   switch (outcome) {
     case 0: // GRAVITY — bass drop, then the rise as everything floats up
-      tone({ type: 'sine', from: 220, to: 28, duration: 1.5, gain: 0.34 });
-      tone({ type: 'triangle', from: 110, to: 660, duration: 1.8, gain: 0.07, delay: 0.25 });
+      tone({ type: 'sine', from: 220, to: 28, duration: 1.0, gain: 0.34 });
+      tone({ type: 'triangle', from: 110, to: 660, duration: 1.2, gain: 0.07, delay: 0.17 });
       break;
 
     case 1: // TIME — reversed ticking: clicks accelerating as it rewinds
       for (let i = 0; i < 14; i++) {
         const t = i / 14;
-        noise(0.035, 0.16 * (1 - t * 0.5), t * t * 1.5, 2600);
-        tone({ type: 'square', from: 900 - i * 34, duration: 0.02, gain: 0.05, delay: t * t * 1.5 });
+        noise(0.035, 0.16 * (1 - t * 0.5), t * t * 1.0, 2600);
+        tone({ type: 'square', from: 900 - i * 34, duration: 0.02, gain: 0.05, delay: t * t * 1.0 });
       }
-      tone({ type: 'sawtooth', from: 420, to: 130, duration: 1.9, gain: 0.05 });
+      tone({ type: 'sawtooth', from: 420, to: 130, duration: 1.27, gain: 0.05 });
       break;
 
     case 2: // SCALE — heavy impact
@@ -228,17 +228,17 @@ export function playOutcome(outcome: Reality) {
       break;
 
     case 3: // ORBIT — a tone sweeping hard across the stereo field
-      tone({ type: 'sine', from: 320, to: 210, duration: 2.3, gain: 0.22, pan: -1, panTo: 1 });
-      tone({ type: 'triangle', from: 160, to: 105, duration: 2.3, gain: 0.16, pan: 1, panTo: -1 });
-      tone({ type: 'sine', from: 640, to: 420, duration: 2.3, gain: 0.06, pan: -0.6, panTo: 0.6 });
+      tone({ type: 'sine', from: 320, to: 210, duration: 1.53, gain: 0.22, pan: -1, panTo: 1 });
+      tone({ type: 'triangle', from: 160, to: 105, duration: 1.53, gain: 0.16, pan: 1, panTo: -1 });
+      tone({ type: 'sine', from: 640, to: 420, duration: 1.53, gain: 0.06, pan: -0.6, panTo: 0.6 });
       break;
 
     case 4: // VOID — silence first, then sub-bass out of nothing
       stopAmbient();
       tone({ type: 'sine', from: 480, to: 90, duration: 0.55, gain: 0.1 });
-      // ~0.9s of nothing, then the floor drops out
-      tone({ type: 'sine', from: 46, to: 18, duration: 2.6, gain: 0.5, delay: 1.45 });
-      tone({ type: 'sine', from: 92, to: 36, duration: 2.2, gain: 0.16, delay: 1.45 });
+      // ~0.5s of nothing, then the floor drops out
+      tone({ type: 'sine', from: 46, to: 18, duration: 1.9, gain: 0.5, delay: 1.06 });
+      tone({ type: 'sine', from: 92, to: 36, duration: 1.61, gain: 0.16, delay: 1.06 });
       break;
   }
 }

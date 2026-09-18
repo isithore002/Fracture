@@ -44,11 +44,11 @@ const GLYPH: Record<Reality, string> = {
 
 /** How long each break animation runs before the payout banner lands. */
 const BREAK_MS: Record<Reality, number> = {
-  0: 2100,
-  1: 2100,
-  2: 2100,
-  3: 2400,
-  4: 2600,
+  0: 1400,
+  1: 1400,
+  2: 1400,
+  3: 1600,
+  4: 1900,
 };
 
 /**
@@ -60,9 +60,9 @@ const BREAK_MS: Record<Reality, number> = {
  *   click -> [MIN_ANTICIPATION_MS floor, measured from the click] -> HOLD_MS
  *   silent beat -> the world breaks -> BREAK_MS[outcome] -> settled
  */
-const MIN_ANTICIPATION_MS = 1450;
+const MIN_ANTICIPATION_MS = 900;
 /** A deliberate beat of near-silence right before the transformation starts. */
-const HOLD_MS = 340;
+const HOLD_MS = 220;
 /**
  * A floor on the "prediction locked" beat itself. In demo mode `openSession`
  * resolves almost instantly (no real network round-trip), which would cut the
