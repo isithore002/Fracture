@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -7,6 +9,18 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { REALITIES, REALITY, type Reality } from '../lib/fracture';
+
+/**
+ * three.js is ~500kB of the bundle — more than the rest of the game put
+ * together — and "loads near-instantly" is a jam eligibility requirement.
+ * So it is never in the critical path: the CSS scene (which is already
+ * mounted as the WebGL fallback) paints immediately, this chunk streams in
+ * behind it, and the canvas only takes over once it reports itself live.
+ * Bundle weight becomes progressive enhancement instead of a loading cost.
+ */
+const ThreeWorld = lazy(() =>
+  import('./ThreeWorld').then(m => ({ default: m.ThreeWorld })),
+);
 import {
   playCaptureReady,
   playDragFizzle,
@@ -218,6 +232,14 @@ export function WorldCanvas({
   const wasLockable = useRef(false);
   const lastPointer = useRef<{ x: number; y: number; t: number } | null>(null);
   const [hasDragged, setHasDragged] = useState(false);
+  /**
+   * 'loading' until the three.js chunk has streamed in and the scene reports
+   * itself live; 'unavailable' if WebGL can't start at all. The CSS scene
+   * stays mounted underneath in every state — this only decides which of the
+   * two is visible, so neither a slow network nor a missing GPU ever costs a
+   * playable round.
+   */
+  const [gl, setGl] = useState<'loading' | 'ok' | 'unavailable'>('loading');
 
   /** Neutral orientation — called on drag start/end so the spring-back
    *  transition (defined in CSS on `.fracture-core-dot`) animates the return
@@ -396,7 +418,7 @@ export function WorldCanvas({
 
   return (
     <div
-      className="world"
+      className={`world${gl === 'ok' ? ' world-gl-on' : ''}`}
       data-phase={phase}
       data-break={breakKey}
       data-preview={previewLaw !== null ? KEY[previewLaw] : undefined}
@@ -411,6 +433,26 @@ export function WorldCanvas({
       }
     >
       <div className="world-frame" ref={frameRef}>
+        {/* The three.js diorama. It sits *under* the anchors/Core overlay, so
+            the whole drag-to-lock interaction (and its verification) is
+            unchanged by the move to WebGL — only the scenery behind it
+            changed. If WebGL can't start, `gl` flips to 'unavailable', the
+            `world-gl-on` class comes off, and the CSS scene below — which is
+            still mounted and fully playable — becomes visible again. */}
+        {gl !== 'unavailable' && (
+          <Suspense fallback={null}>
+            <ThreeWorld
+              phase={phase}
+              outcome={outcome}
+              preview={previewLaw}
+              selected={selected}
+              damage={damage}
+              onReady={() => setGl('ok')}
+              onUnavailable={() => setGl('unavailable')}
+            />
+          </Suspense>
+        )}
+
         {/* The whole scene is decorative — the round's state is conveyed by
             the result banner and the prediction cards, both of which are
             real text, so one aria-hidden here covers all of it. */}

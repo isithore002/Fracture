@@ -225,6 +225,27 @@ body {
   transition: box-shadow 220ms var(--ease-out);
 }
 
+/* The three.js diorama fills the frame, behind the anchors/Core overlay. */
+.world-gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+}
+
+/*
+ * When WebGL is live, the CSS scene is hidden rather than unmounted:
+ * `visibility` keeps it in layout (so nothing the drag code measures shifts)
+ * while skipping its paint entirely. If the canvas ever fails to start, this
+ * class simply isn't applied and the 2D scene is on screen again — the
+ * fallback needs no second code path.
+ */
+.world-gl-on .world-stage {
+  visibility: hidden;
+}
+
 /*
  * The world answers before you commit: hovering a law card (not dragging —
  * that already gets the Core's own lean/hum feedback) puts a faint glow of
