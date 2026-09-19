@@ -1469,6 +1469,47 @@ body {
     0 0 0 color-mix(in srgb, var(--law-color-2, #000) 55%, black);
 }
 
+/*
+ * "Let it ride" — offered only after a win, and only ever a shortcut: it
+ * stakes what was just won on a fresh independent round. Brass rather than
+ * lit, so it reads as the optional escalation next to the primary key
+ * rather than competing with it.
+ */
+.ride {
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #211b12 0%, #171207 100%);
+  color: var(--brass);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(176, 141, 87, 0.5),
+    inset 0 0 0 1px rgba(176, 141, 87, 0.32),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.5),
+    0 2px 0 var(--panel-groove);
+  transition: transform 80ms var(--ease-mech), box-shadow 80ms var(--ease-mech), color 120ms;
+}
+
+.ride:hover {
+  color: #ffd79a;
+}
+
+.ride:active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.7),
+    inset 0 0 0 1px rgba(176, 141, 87, 0.28),
+    0 0 0 var(--panel-groove);
+}
+
 /* Unpowered: the lamp is out and the key is dead metal, not a faded button. */
 .cta:disabled {
   background: linear-gradient(180deg, #23202c 0%, #17151f 100%);

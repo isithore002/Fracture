@@ -334,8 +334,15 @@ export function App() {
     setPrediction(next);
   }, []);
 
-  const submit = useCallback(async () => {
-    if (!hostApi || !wager) return;
+  /**
+   * Places a round. `stakeOverride` exists for "let it ride", which needs to
+   * bet an amount computed in the same tick — reading it from `wagerInput`
+   * would pick up the previous value, since a state update isn't visible
+   * until the next render.
+   */
+  const submit = useCallback(async (stakeOverride?: bigint) => {
+    const stake = stakeOverride ?? wager;
+    if (!hostApi || !stake) return;
     unlockAudio();
     startAmbient();
     setError(null);
@@ -344,12 +351,12 @@ export function App() {
     const openedAt = Date.now();
     const knownKeys = (snapshot?.sessions.items ?? []).map(item => item.sessionKey);
     // "Prediction locked" — the commit itself, before the network round-trip.
-    setRound({ id, knownKeys, prediction, wager, status: 'opening', openedAt });
+    setRound({ id, knownKeys, prediction, wager: stake, status: 'opening', openedAt });
     playLock();
 
     try {
       const { sessionKey } = await hostApi.openSession({
-        wager: wager.toString(),
+        wager: stake.toString(),
         gameData: encodeGameData(prediction),
       });
       // The bet is already placed — this only delays *our own* visual exit
@@ -388,11 +395,25 @@ export function App() {
     playTick();
   }, []);
 
-  const replay = useCallback(() => {
-    setRound(null);
-    setError(null);
-    startAmbient();
-  }, []);
+  /**
+   * Roll the winnings straight into the next round.
+   *
+   * This is *not* a new game mechanic — there is no multi-step session, no
+   * on-chain "streak" and nothing riding between rounds. It is one tap that
+   * sets the stake to what was just won and opens a fresh, independent
+   * round at the same fixed 95% RTP. The escalation is the player's own
+   * money compounding by choice, which is why it can be offered honestly.
+   */
+  const letItRide = useCallback(() => {
+    const won = round?.result?.won ? (round.payout ?? 0n) : 0n;
+    if (won <= 0n) return;
+    // Never stake more than the balance actually holds — the host would
+    // reject it, and the player would just get an error instead of a round.
+    const stake = balance !== undefined && won > balance ? balance : won;
+    if (stake <= 0n) return;
+    setWagerInput(formatUnits(stake, decimals));
+    void submit(stake);
+  }, [round, balance, decimals, submit]);
 
   // --- derived view state ----------------------------------------------------
   const worldPhase: WorldPhase =
@@ -623,21 +644,24 @@ export function App() {
               </button>
             </div>
 
-            {round?.status === 'settled' ? (
-              <button type="button" className="cta" data-law={REALITY[prediction].key} onClick={replay}>
-                Shift again
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="cta"
-                data-law={REALITY[prediction].key}
-                disabled={!canBet}
-                onClick={() => void submit()}
-              >
-                {busy ? 'Fracturing…' : `Fracture ${REALITY[prediction].name}`}
+            {/* After a round settles the primary key goes straight back into
+                another round — no "shift again" step in between. The dead
+                time between rounds was the whole reason a session ended
+                after two or three of them. */}
+            {round?.status === 'settled' && round.result?.won && (round.payout ?? 0n) > 0n && (
+              <button type="button" className="ride" onClick={letItRide}>
+                Let it ride · {fmt(round.payout ?? 0n)} {symbol}
               </button>
             )}
+            <button
+              type="button"
+              className="cta"
+              data-law={REALITY[prediction].key}
+              disabled={!canBet}
+              onClick={() => void submit()}
+            >
+              {busy ? 'Fracturing…' : `Fracture ${REALITY[prediction].name}`}
+            </button>
 
             <p className="payout-preview">
               {wager ? (

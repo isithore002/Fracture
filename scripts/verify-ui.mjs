@@ -66,11 +66,17 @@ async function main() {
   console.log('\n2. Playing a full round for each prediction');
   const seen = new Set();
   for (let i = 0; i < 5; i++) {
+    // The primary key goes straight into another round once one settles, so
+    // wait for it to be live again rather than clicking a separate reset.
+    await page.locator('.cta:not([disabled])').waitFor({ timeout: 15000 });
     await page.locator('.pick').nth(i).click();
     const label = await page.locator('.pick').nth(i).locator('.pick-name').innerText();
 
-    const cta = page.locator('.cta');
-    await cta.click();
+    // The previous round's banner unmounts the moment a new round opens;
+    // waiting for that first is what keeps the read below from picking up
+    // the last round's result.
+    await page.locator('.cta').click();
+    await page.locator('.result').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
 
     // anticipation beat
     await page.waitForSelector(".world[data-phase='anticipation']", { timeout: 5000 });
@@ -89,9 +95,6 @@ async function main() {
       `predicted ${label.padEnd(7)} -> ${broke.padEnd(7)} | ${headline.trim()}`,
       detail.trim(),
     );
-
-    await page.locator('.cta').click(); // "Shift again"
-    await page.waitForSelector('.world:not([data-break])', { timeout: 5000 });
   }
 
   // --- 2b. a win must actually credit the balance --------------------------
@@ -105,11 +108,12 @@ async function main() {
   console.log('\n2b. A winning round credits the balance');
   let sawWin = false;
   for (let attempt = 0; attempt < 12 && !sawWin; attempt++) {
+    await page.locator('.cta:not([disabled])').waitFor({ timeout: 15000 });
     await page.locator('.pick').first().click(); // Gravity, 45%
     const before = Number((await page.locator('.balance').innerText()).replace(/[^\d.]/g, ''));
-    await page.locator('.cta:not([disabled])').waitFor({ timeout: 10000 });
     await page.locator('.cta').click();
-    await page.locator('.result').waitFor({ timeout: 20000 });
+    await page.locator('.result').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+    await page.locator('.result').waitFor({ state: 'visible', timeout: 20000 });
     const detail = (await page.locator('.result-detail').innerText()).trim();
     await page.waitForTimeout(400); // let the reveal's balance push land
     const after = Number((await page.locator('.balance').innerText()).replace(/[^\d.]/g, ''));
@@ -122,8 +126,6 @@ async function main() {
         `${before} -> ${after} (net +${(after - before).toFixed(4)})`,
       );
     }
-    await page.locator('.cta').click(); // Shift again
-    await page.locator('.world:not([data-break])').waitFor({ timeout: 8000 });
   }
   if (!sawWin) ok(false, 'no Gravity win in 12 attempts at 45% (investigate)');
 
