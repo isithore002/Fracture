@@ -262,6 +262,69 @@ export function playOutcome(outcome: Reality) {
 }
 
 /**
+ * A step survived: the arc sweeping past without taking you.
+ *
+ * Deliberately a fraction of the weight of `playOutcome`. A run can land ten
+ * of these, and the full law transformation at that cadence would be
+ * exhausting and would bleed over the next step. It keeps the law's colour —
+ * the same voice, heard from a distance — so surviving GRAVITY still sounds
+ * like gravity.
+ */
+export function playSweep(outcome: Reality) {
+  switch (outcome) {
+    case 0: // GRAVITY — a short drop that pulls away instead of landing
+      tone({ type: 'sine', from: jitter(180), to: 52, duration: 0.26, gain: 0.16 });
+      break;
+    case 1: // TIME — a handful of clicks, receding
+      for (let i = 0; i < 5; i++) {
+        noise(0.022, 0.1 * (1 - i * 0.15), i * 0.045, 2600);
+      }
+      break;
+    case 2: // SCALE — one contained impact
+      noise(0.16, 0.2, 0, 1000);
+      tone({ type: 'sine', from: jitter(140), to: 60, duration: 0.2, gain: 0.18 });
+      break;
+    case 3: // ORBIT — a quick pass across the stereo field
+      tone({ type: 'sine', from: jitter(300), to: 220, duration: 0.3, gain: 0.12, pan: -1, panTo: 1 });
+      break;
+    case 4: // VOID — a brief absence, then a low thud of nothing
+      tone({ type: 'sine', from: 420, to: 140, duration: 0.14, gain: 0.07 });
+      tone({ type: 'sine', from: 58, to: 34, duration: 0.3, gain: 0.22, delay: 0.16 });
+      break;
+  }
+}
+
+/**
+ * The multiplier climbing one rung.
+ *
+ * This is the hook: it rises with the ladder, so the tenth step is audibly
+ * higher and tighter than the first, and a player deep in a run can hear how
+ * far they are without reading the number. Bare intervals only — the moment
+ * this becomes a jingle it turns into the generic casino payout fanfare the
+ * rest of the sound design exists to avoid.
+ */
+export function playClimb(step: number) {
+  const rung = Math.max(1, Math.min(step, 10));
+  const base = 294 * Math.pow(2, rung / 7);
+  // The detent of the rung locking in...
+  noise(0.018, 0.12, 0, 4200);
+  // ...then the interval, tightening as the ladder gets higher.
+  tone({ type: 'triangle', from: base, duration: 0.2, gain: 0.11 });
+  tone({ type: 'sine', from: base * 1.5, duration: 0.16, gain: 0.05, delay: 0.035 });
+}
+
+/**
+ * Banking a run. The machine paying out on request — heavier and more final
+ * than a climb, but still not a celebration.
+ */
+export function playBank() {
+  noise(0.035, 0.16, 0, 2800);
+  tone({ type: 'triangle', from: 330, duration: 0.42, gain: 0.12, delay: 0.02 });
+  tone({ type: 'triangle', from: 495, duration: 0.36, gain: 0.08, delay: 0.07 });
+  tone({ type: 'sine', from: 660, duration: 0.5, gain: 0.04, delay: 0.12 });
+}
+
+/**
  * Win and loss are deliberately *small*. The spectacle already happened —
  * a law of physics just broke and the world is still settling. A four-note
  * jackpot fanfare on top of that is the exact "generic casino jingle" the

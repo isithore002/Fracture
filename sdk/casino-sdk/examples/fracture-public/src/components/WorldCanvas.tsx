@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, type CSSProperties } from 'react';
 import { type Reality } from '../lib/fracture';
+import { ANCHOR, ANCHORS, arcPositions, type Position } from '../lib/fractureRun';
 
 /**
  * three.js is ~500kB of the bundle — more than the rest of the game put
@@ -23,23 +24,29 @@ export type WorldPhase = 'idle' | 'anticipation' | 'holding' | 'breaking' | 'set
 
 type Props = {
   phase: WorldPhase;
-  /** The reality that broke — only meaningful once phase is 'breaking' or later. */
-  outcome: Reality | null;
-  /** The currently committed prediction — where the Core rests when idle. */
-  selected: Reality;
+  /** The law doing the breaking — only meaningful once phase is 'breaking'. */
+  law: Reality | null;
+  /** Where the player's Reality Anchor stands. */
+  anchor: Position;
+  /**
+   * The arc being destroyed this step, or null.
+   *
+   * This is null for the whole of 'anticipation' by design, not by omission:
+   * the VRF word that picks the arc does not exist until after the anchor is
+   * committed, so there is nothing to show and nothing to leak. The telegraph
+   * conveys that danger is rising, never where it will land.
+   */
+  arc: { start: Position; length: number } | null;
+  /** True when the landing arc contained the anchor. */
+  struck: boolean;
+  /** Steps survived so far — the world frays as a run gets deeper. */
+  step: number;
   /**
    * Accumulated per-law damage for this session (0..MAX_DAMAGE each). Exposed
    * to CSS as custom properties so the stylesheet decides what "gravity has
    * broken three times" looks like — this component just publishes the numbers.
    */
   damage: Record<Reality, number>;
-  /**
-   * The law the pointer is currently hovering in the controls panel, or null.
-   * Purely cosmetic — a `data-preview` attribute the stylesheet reads for a
-   * faint law-colored glow, so the world visibly answers before a bet is
-   * ever placed. Never influences layout, drag state, or gameplay.
-   */
-  previewLaw?: Reality | null;
 };
 
 const KEY: Record<Reality, string> = {
@@ -99,15 +106,23 @@ const MOTES: { x: number; y: number; r: number; dur: number; delay: number }[] =
  * `[data-break='...']`. Adding an outcome means adding a keyframe block, not
  * touching this component.
  */
-export function WorldCanvas({
-  phase,
-  outcome,
-  selected,
-  damage,
-  previewLaw = null,
-}: Props) {
+/**
+ * Where each anchor stands in the CSS fallback scene, as a percentage of the
+ * frame. The three.js diorama places the same five positions in world space;
+ * these exist so the fallback is still a playable, legible board.
+ */
+const ANCHOR_SPOT: Record<Position, { x: number; y: number }> = {
+  0: { x: 21, y: 53 }, // hilltop
+  1: { x: 73, y: 58 }, // orchard
+  2: { x: 48, y: 62 }, // hearth
+  3: { x: 87, y: 71 }, // fenceline
+  4: { x: 31, y: 79 }, // hollow
+};
+
+export function WorldCanvas({ phase, law, anchor, arc, struck, step, damage }: Props) {
   const breaking = phase === 'breaking' || phase === 'settled';
-  const breakKey = breaking && outcome !== null ? KEY[outcome] : undefined;
+  const breakKey = breaking && law !== null ? KEY[law] : undefined;
+  const hitPositions = arc ? arcPositions(arc.start, arc.length) : [];
 
   /**
    * 'loading' until the three.js chunk has streamed in and the scene reports
@@ -123,7 +138,7 @@ export function WorldCanvas({
       className={`world${gl === 'ok' ? ' world-gl-on' : ''}`}
       data-phase={phase}
       data-break={breakKey}
-      data-preview={previewLaw !== null ? KEY[previewLaw] : undefined}
+      data-struck={arc ? (struck ? 'yes' : 'no') : undefined}
       style={
         {
           '--dmg-gravity': damage[0],
@@ -131,6 +146,7 @@ export function WorldCanvas({
           '--dmg-scale': damage[2],
           '--dmg-orbit': damage[3],
           '--dmg-void': damage[4],
+          '--run-step': step,
         } as CSSProperties
       }
     >
@@ -143,9 +159,10 @@ export function WorldCanvas({
           <Suspense fallback={null}>
             <ThreeWorld
               phase={phase}
-              outcome={outcome}
-              preview={previewLaw}
-              selected={selected}
+              law={law}
+              anchor={anchor}
+              arc={arc}
+              struck={struck}
               damage={damage}
               onReady={() => setGl('ok')}
               onUnavailable={() => setGl('unavailable')}
@@ -269,6 +286,24 @@ export function WorldCanvas({
 
           {/* the singularity, only visible for VOID ---------------------- */}
           <div className="void-core" />
+
+          {/* The five positions, and where the anchor is standing. The
+              three.js diorama draws these in world space; this is the
+              fallback board, so it has to stay legible on its own. */}
+          <div className="anchors">
+            {ANCHORS.map(id => (
+              <span
+                key={id}
+                className={
+                  `anchor-spot` +
+                  (id === anchor ? ' here' : '') +
+                  (hitPositions.includes(id) ? ' hit' : '')
+                }
+                style={{ left: `${ANCHOR_SPOT[id].x}%`, top: `${ANCHOR_SPOT[id].y}%` }}
+                title={ANCHOR[id].name}
+              />
+            ))}
+          </div>
         </div>
 
       </div>

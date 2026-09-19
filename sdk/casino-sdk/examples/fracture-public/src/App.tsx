@@ -5,28 +5,36 @@ import type { HostSnapshotV1 } from '@chain/casino-sdk/guest';
 type HostSnapshotSessions = HostSnapshotV1['sessions']['items'];
 
 import { useCasinoHost } from './lib/useCasinoHost';
+import { REALITIES, REALITY, isTerminalPhase, type Reality } from './lib/fracture';
 import {
-  REALITIES,
-  REALITY,
-  bucketFromRandomness,
-  bucketToOutcome,
-  chanceOf,
-  decodeGameState,
+  ACTION_CASH_OUT,
+  ACTION_CONTINUE,
+  ANCHOR,
+  ANCHORS,
+  MAX_STEPS,
+  arcPositions,
+  decodeRunState,
+  encodeAction,
   encodeGameData,
-  isTerminalPhase,
-  multiplierOf,
+  hazardAt,
+  maxWagerFor,
+  multiplierAt,
   payoutFor,
-  type FractureResult,
-  type Reality,
-} from './lib/fracture';
+  reachPct,
+  stepSurvivalPct,
+  type Position,
+} from './lib/fractureRun';
 import { WorldCanvas, type WorldPhase } from './components/WorldCanvas';
-import { RollReadout } from './components/RollReadout';
+import { ArcReadout } from './components/ArcReadout';
 import {
   playAnticipation,
+  playBank,
+  playClimb,
   playLock,
   playLose,
   playOutcome,
   playSelect,
+  playSweep,
   playTensionPulse,
   playTick,
   playWin,
@@ -35,42 +43,33 @@ import {
 } from './lib/sound';
 import './styles/fracture.css';
 
-const GLYPH: Record<Reality, string> = {
-  0: '↑', // gravity — up arrow
-  1: '↺', // time — anticlockwise
-  2: '◱', // scale
-  3: '◌', // orbit
-  4: '⬤', // void
-};
-
-/** How long each break animation runs before the payout banner lands. */
-const BREAK_MS: Record<Reality, number> = {
-  0: 1400,
-  1: 1400,
-  2: 1400,
-  3: 1600,
-  4: 1900,
+const ANCHOR_GLYPH: Record<Position, string> = {
+  0: '▲', // hilltop — high ground
+  1: '❦', // orchard — the trees
+  2: '⌂', // hearth — the house
+  3: '⊟', // fenceline — the edge
+  4: '▽', // hollow — low ground
 };
 
 /**
- * Presentation-only pacing. None of this changes when the round actually
- * settles on-chain — it only paces how the *reveal* of an already-known
- * result is staged, so a fast VRF round-trip doesn't feel abrupt and a slow
- * one doesn't feel broken:
+ * Presentation-only pacing. None of this changes when a step actually resolves
+ * on-chain — it only paces how an already-known result is revealed.
  *
- *   click -> [MIN_ANTICIPATION_MS floor, measured from the click] -> HOLD_MS
- *   silent beat -> the world breaks -> BREAK_MS[outcome] -> settled
+ *   commit -> [telegraph, at least MIN_TELEGRAPH_MS] -> HOLD_MS silence
+ *   -> the arc lands -> SAFE_MS or FRACTURE_MS -> decision, or run over
+ *
+ * SAFE is deliberately short and FRACTURE is long: a climbing run should feel
+ * fast, and the moment it ends should not.
  */
-const MIN_ANTICIPATION_MS = 900;
-/** A deliberate beat of near-silence right before the transformation starts. */
-const HOLD_MS = 220;
-/**
- * A floor on the "prediction locked" beat itself. In demo mode `openSession`
- * resolves almost instantly (no real network round-trip), which would cut the
- * lock-flash animation off after a few ms. On a real host this never binds —
- * the actual transaction round-trip already takes longer than this.
- */
-const LOCK_MS = 460;
+const MIN_TELEGRAPH_MS = 620;
+/** A beat of near-silence right before the arc lands. */
+const HOLD_MS = 180;
+/** Surviving: a quick pulse, then straight back to the decision. */
+const SAFE_MS = 460;
+/** The run ending: the full law transformation gets its weight. */
+const FRACTURE_MS = 1500;
+/** Floor on the "committed" beat so a fast open doesn't cut the lock flash. */
+const LOCK_MS = 380;
 /** Cadence of the soft "still waiting" pulse, matched to the CSS tension loop. */
 const TENSION_PULSE_MS = 1400;
 
@@ -81,8 +80,32 @@ const TENSION_PULSE_MS = 1400;
  */
 export const MAX_DAMAGE = 5;
 
-type Round = {
-  /** Local id for this round; never compared against host data. */
+/** One resolved step, kept for the run log. */
+type StepRecord = {
+  step: number;
+  anchor: Position;
+  arcStart: Position;
+  arcLength: number;
+  law: Reality;
+  struck: boolean;
+};
+
+type RunPhase =
+  /** No run open. Place a wager, place an anchor. */
+  | 'idle'
+  /** A transaction is in flight (openSession, or an action). */
+  | 'committing'
+  /** The VRF word for the step in flight does not exist yet. */
+  | 'awaiting'
+  /** The result is known; the arc is landing on screen. */
+  | 'resolving'
+  /** Survived. CASH OUT, or ONE MORE. */
+  | 'choosing'
+  /** Over — struck, or banked. */
+  | 'over';
+
+type Run = {
+  /** Local id for this run; never compared against host data. */
   id: number;
   /**
    * The key the host handed back from `openSession`. The host opens with an
@@ -90,29 +113,27 @@ type Round = {
    * so this key can go stale — `knownKeys` is what actually finds our row.
    */
   sessionKey?: string;
-  /**
-   * The host's real session id, read off the settled row. Needed for
-   * `revealOutcome` — without it the host keeps winnings hidden (see the
-   * reveal call in the settle sequence below).
-   */
+  /** The host's real session id. Needed for `submitAction` and `revealOutcome`. */
   sessionId?: string;
   /** Session keys that already existed when we opened, so we can spot ours. */
   knownKeys: string[];
-  prediction: Reality;
   wager: bigint;
-  /**
-   * `holding` is a purely presentational beat between "the result is known"
-   * and "the world visibly breaks" — see MIN_ANTICIPATION_MS / HOLD_MS above.
-   */
-  status: 'opening' | 'waiting' | 'holding' | 'breaking' | 'settled';
-  /** ms since epoch when the player committed — the anticipation floor. */
-  openedAt: number;
-  result?: FractureResult;
+  /** Steps survived so far. */
+  step: number;
+  /** How many step resolutions have been presented — the replay guard. */
+  presented: number;
+  phase: RunPhase;
+  log: StepRecord[];
+  /** The step currently landing on screen. */
+  landing?: StepRecord;
+  ended?: 'struck' | 'banked';
   payout?: bigint;
+  /** ms since epoch when the current step was committed. */
+  committedAt: number;
 };
 
 /**
- * Finds this round's session row.
+ * Finds this run's session row.
  *
  * The host pushes an optimistic `pending:<uuid>` row the moment `openSession`
  * is called, then replaces it with the real session id once the transaction is
@@ -121,15 +142,12 @@ type Round = {
  * settles. We match the returned key when it is still present, and otherwise
  * take the newest row that was not there before we opened.
  */
-function findRow(
-  items: HostSnapshotSessions,
-  round: Round,
-): HostSnapshotSessions[number] | undefined {
-  if (round.sessionKey) {
-    const direct = items.find(item => item.sessionKey === round.sessionKey);
+function findRow(items: HostSnapshotSessions, run: Run): HostSnapshotSessions[number] | undefined {
+  if (run.sessionKey) {
+    const direct = items.find(item => item.sessionKey === run.sessionKey);
     if (direct) return direct;
   }
-  const known = new Set(round.knownKeys);
+  const known = new Set(run.knownKeys);
   const fresh = items.filter(item => !known.has(item.sessionKey));
   if (fresh.length === 0) return undefined;
   // `items` is newest-first from the host; fall back to the last event stamp.
@@ -141,35 +159,27 @@ function findRow(
 export function App() {
   const { hostApi, snapshot, demo } = useCasinoHost();
 
-  const [prediction, setPrediction] = useState<Reality>(0);
-  /**
-   * Purely a hover preview — which card the pointer is over right now, so the
-   * world can answer before a bet is ever placed. Never read by any gameplay
-   * or settlement path; WorldCanvas only uses it to tint a glow.
-   */
-  const [previewLaw, setPreviewLaw] = useState<Reality | null>(null);
+  const [anchor, setAnchor] = useState<Position>(2);
   const [wagerInput, setWagerInput] = useState('1.00');
-  const [round, setRound] = useState<Round | null>(null);
+  const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
   /**
-   * Reality doesn't heal. Every law that breaks leaves a permanent mark for
-   * the rest of the session, so the world the player is looking at is a record
-   * of what they've been through rather than a scene that resets each round.
-   *
-   * Stored as one level per law (0..MAX_DAMAGE) rather than a growing list of
-   * damage objects — the renderer interprets five numbers, so a 200-round
-   * session costs exactly as much to draw as a 2-round one.
+   * Reality doesn't heal. Every arc that lands leaves a permanent mark for the
+   * rest of the session, so the world the player is looking at is a record of
+   * what they've been through rather than a scene that resets each run — and a
+   * long run visibly wrecks it, which is the point.
    *
    * Purely cosmetic and purely local: this never reaches the contract, the
    * wager, the odds or the payout.
    */
   const [damage, setDamage] = useState<Record<Reality, number>>({ 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 });
-  /** Reveal-pacing timers, in the order they fire: lock -> floor -> hold -> settle. */
+
+  /** Reveal-pacing timers, in the order they fire: lock -> floor -> hold -> land. */
   const lockTimer = useRef<number | undefined>(undefined);
   const floorTimer = useRef<number | undefined>(undefined);
   const holdTimer = useRef<number | undefined>(undefined);
-  const settleTimer = useRef<number | undefined>(undefined);
-  const roundSeq = useRef(1);
+  const landTimer = useRef<number | undefined>(undefined);
+  const runSeq = useRef(1);
   /**
    * The reveal fires from inside a timeout chain, so it must not close over a
    * `hostApi` from an older render — the SDK explicitly warns that a
@@ -177,10 +187,6 @@ export function App() {
    */
   const hostApiRef = useRef(hostApi);
   hostApiRef.current = hostApi;
-  /** Round ids whose settlement has already been staged, so a repeat host
-   *  snapshot push while we're mid-reveal doesn't restart the sequence or
-   *  double-fire the outcome sound. */
-  const staged = useRef(new Set<number>());
 
   const decimals = snapshot?.token.decimals ?? 18;
   const symbol = snapshot?.token.symbol ?? 'chUSD';
@@ -189,6 +195,22 @@ export function App() {
     const raw = snapshot?.balances.smartVaultBalance;
     return raw !== undefined ? BigInt(raw) : undefined;
   }, [snapshot?.balances.smartVaultBalance]);
+
+  /**
+   * Run mode reserves the whole ladder at `openSession`, so the per-bet
+   * exposure is ~110.85x the stake. The ceiling has to come from the host's
+   * live risk limit — a hard-coded maximum would start reverting the moment
+   * vault liquidity moved.
+   */
+  const maxWager = useMemo(() => {
+    const raw = snapshot?.casino?.maxAllowedReservedProfit;
+    if (raw === undefined) return undefined;
+    try {
+      return maxWagerFor(BigInt(raw));
+    } catch {
+      return undefined;
+    }
+  }, [snapshot?.casino?.maxAllowedReservedProfit]);
 
   const wager = useMemo(() => {
     try {
@@ -199,183 +221,345 @@ export function App() {
     }
   }, [wagerInput, decimals]);
 
-  const busy = round !== null && round.status !== 'settled';
   const ready = snapshot?.wallet.status === 'ready';
+  const phase = run?.phase ?? 'idle';
+  const inFlight = phase === 'committing' || phase === 'awaiting' || phase === 'resolving';
+  /** The anchor can only be moved when the run is actually waiting on us. */
+  const canMove = phase === 'idle' || phase === 'choosing' || phase === 'over';
 
-  // --- settle the active round from host snapshot pushes ---------------------
-  //
-  // The result itself is known the instant the host reports the row settled —
-  // nothing here changes when that happens or what it is. What changes is how
-  // the *reveal* is staged, so a fast VRF round-trip doesn't feel like nothing
-  // happened and a slow one doesn't feel broken:
-  //
-  //   result known -> (wait out MIN_ANTICIPATION_MS from the click, if needed)
-  //   -> a silent "holding" beat (HOLD_MS) -> the world breaks + outcome sound
-  //   -> BREAK_MS[outcome] of transformation -> settled + win/lose sound
+  const step = run?.step ?? 0;
+  const banked = step > 0 ? payoutFor(run?.wager ?? 0n, step) : 0n;
+  const nextStep = Math.min(step + 1, MAX_STEPS);
+
+  /**
+   * Pick a live run back up after a reload.
+   *
+   * A run is a multi-step on-chain session: closing the tab at step 6 leaves it
+   * sitting in WAITING_PLAYER_ACTION with real banked value on it. Without
+   * this, reopening the game would show a fresh idle screen while that session
+   * quietly waited out its action deadline — the player would have to forfeit
+   * (and lose the host's cut) to get their winnings back. So on the first
+   * snapshot we look for our own unfinished session and rebuild the run around
+   * it, leaving the player exactly where they left off.
+   *
+   * Only ever adopts a session the host still reports as live, and never
+   * touches the stake, the step or the multiplier — all of those come from the
+   * contract's own game state.
+   */
+  const adopted = useRef(false);
   useEffect(() => {
-    if (!round || round.status !== 'waiting' || !snapshot) return;
-    if (staged.current.has(round.id)) return; // already sequencing this round
+    if (adopted.current || run !== null || !snapshot) return;
+    const live = snapshot.sessions.items.find(
+      item =>
+        !item.isSettled &&
+        !isTerminalPhase(item.phase) &&
+        (item.phase === 1 || item.phase === 2) &&
+        item.raw.gameState !== undefined,
+    );
+    if (!live) return;
+    const state = decodeRunState(live.raw.gameState as `0x${string}`);
+    if (!state || state.struck || state.cashedOut) return;
 
-    const row = findRow(snapshot.sessions.items, round);
-    if (!row || !(row.isSettled || isTerminalPhase(row.phase))) return;
+    adopted.current = true;
+    setAnchor(state.position);
+    setRun({
+      id: runSeq.current++,
+      sessionKey: live.sessionKey,
+      sessionId: live.sessionId,
+      knownKeys: [],
+      wager: live.wager !== undefined ? BigInt(live.wager) : 0n,
+      step: state.step,
+      // Everything already resolved has been resolved; nothing to replay.
+      presented: state.step,
+      phase: live.phase === 2 ? 'choosing' : 'awaiting',
+      // The earlier steps' words are not reconstructible from one snapshot, so
+      // the log starts here rather than inventing rows that were never drawn.
+      log: [],
+      committedAt: Date.now(),
+    });
+  }, [run, snapshot]);
 
-    // Prefer the decoded on-chain game state; fall back to re-deriving the
-    // outcome from the raw VRF word with the same mapping the contract uses.
-    const decoded = row.raw.gameState ? decodeGameState(row.raw.gameState) : null;
-    const fromRandomness =
-      !decoded && row.raw.randomness && BigInt(row.raw.randomness) !== 0n
-        ? ((): FractureResult => {
-            // Derive the bucket the same way the contract does rather than
-            // leaving it unknown — the roll is what the result screen shows
-            // the player, so this path must produce it too.
-            const bucket = bucketFromRandomness(row.raw.randomness as `0x${string}`);
-            const outcome = bucketToOutcome(bucket);
-            return {
-              prediction: round.prediction,
-              outcome,
-              bucket,
-              won: outcome === round.prediction,
-              randomness: row.raw.randomness as `0x${string}`,
-            };
-          })()
-        : null;
+  // --- advance the run from host snapshot pushes -----------------------------
+  //
+  // The result itself is known the instant the host reports the step resolved —
+  // nothing here changes when that happens or what it is. What changes is how
+  // the reveal is staged: telegraph, a beat of silence, then the arc lands.
+  useEffect(() => {
+    if (!run || !snapshot) return;
+    if (run.phase !== 'awaiting' && run.phase !== 'committing') return;
 
-    const result = decoded ?? fromRandomness;
-    if (!result) return; // settled but not synced yet — wait for the next push
+    const row = findRow(snapshot.sessions.items, run);
+    if (!row) return;
 
+    const state = row.raw.gameState ? decodeRunState(row.raw.gameState) : null;
+    if (!state) return;
+
+    const settled = row.isSettled || isTerminalPhase(row.phase);
+    // How many steps have actually resolved: a strike resolves the step the
+    // player did not survive, so it counts one beyond the survived total.
+    const resolvedCount = state.struck ? state.step + 1 : state.step;
+
+    // A cash-out settles without resolving a new step — nothing to reveal, the
+    // multiplier was already on screen.
+    if (settled && state.cashedOut && resolvedCount <= run.presented) {
+      const payout =
+        row.payout !== undefined && BigInt(row.payout) > 0n
+          ? BigInt(row.payout)
+          : payoutFor(run.wager, state.step);
+      const sessionId = row.sessionId;
+      setRun(current =>
+        current && current.id === run.id
+          ? { ...current, phase: 'over', ended: 'banked', payout, sessionId }
+          : current,
+      );
+      playBank();
+      if (sessionId) void hostApiRef.current?.revealOutcome({ sessionId }).catch(() => {});
+      return;
+    }
+
+    if (resolvedCount <= run.presented) return; // nothing new to show yet
+
+    const record: StepRecord = {
+      step: resolvedCount,
+      anchor: state.position,
+      arcStart: state.arcStart,
+      arcLength: state.arcLength,
+      law: state.law,
+      struck: state.struck,
+    };
     const payout =
       row.payout !== undefined && BigInt(row.payout) > 0n
         ? BigInt(row.payout)
-        : result.won
-          ? payoutFor(round.wager, result.prediction)
-          : 0n;
+        : state.struck
+          ? 0n
+          : payoutFor(run.wager, state.step);
 
-    staged.current.add(round.id);
-    const roundId = round.id;
+    const runId = run.id;
     const sessionId = row.sessionId;
-    const elapsed = Date.now() - round.openedAt;
-    const floorDelay = Math.max(0, MIN_ANTICIPATION_MS - elapsed);
+    const elapsed = Date.now() - run.committedAt;
+    const floorDelay = Math.max(0, MIN_TELEGRAPH_MS - elapsed);
+
+    // Mark as presented immediately so a repeat snapshot push mid-reveal can't
+    // restart the sequence or double-fire the sound.
+    setRun(current =>
+      current && current.id === runId ? { ...current, presented: resolvedCount, sessionId } : current,
+    );
 
     window.clearTimeout(floorTimer.current);
     floorTimer.current = window.setTimeout(() => {
       // The silent beat: tension stops, nothing plays, the world holds still.
-      setRound(current =>
-        current && current.id === roundId
-          ? { ...current, status: 'holding', result, payout, sessionId }
-          : current,
+      setRun(current =>
+        current && current.id === runId ? { ...current, phase: 'resolving' } : current,
       );
 
       window.clearTimeout(holdTimer.current);
       holdTimer.current = window.setTimeout(() => {
-        setRound(current =>
-          current && current.id === roundId ? { ...current, status: 'breaking' } : current,
+        setRun(current =>
+          current && current.id === runId ? { ...current, landing: record } : current,
         );
-        // This is the moment the world transforms.
-        playOutcome(result.outcome);
+        // This is the moment the arc lands and the world transforms. A strike
+        // gets the law's full voice; surviving hears it sweep past instead —
+        // ten full transformations in one run would be exhausting, and the
+        // tails would bleed over the following step.
+        if (record.struck) playOutcome(record.law);
+        else playSweep(record.law);
 
-        window.clearTimeout(settleTimer.current);
-        settleTimer.current = window.setTimeout(() => {
-          setRound(current =>
-            current && current.id === roundId ? { ...current, status: 'settled' } : current,
-          );
-          if (result.won) playWin();
-          else playLose();
+        // Reality is damaged whether or not the anchor was inside the arc —
+        // the law broke either way.
+        setDamage(prev =>
+          prev[record.law] >= MAX_DAMAGE
+            ? prev
+            : { ...prev, [record.law]: prev[record.law] + 1 },
+        );
 
-          // The world keeps the scar. Note this tracks `result.outcome` — the
-          // law that actually broke — not the player's prediction: reality was
-          // damaged regardless of whether they called it right.
-          setDamage(prev =>
-            prev[result.outcome] >= MAX_DAMAGE
-              ? prev
-              : { ...prev, [result.outcome]: prev[result.outcome] + 1 },
-          );
+        window.clearTimeout(landTimer.current);
+        landTimer.current = window.setTimeout(
+          () => {
+            setRun(current => {
+              if (!current || current.id !== runId) return current;
+              const log = [...current.log, record];
+              if (record.struck) {
+                return { ...current, phase: 'over', ended: 'struck', payout: 0n, log };
+              }
+              const survived = record.step;
+              if (survived >= MAX_STEPS) {
+                return { ...current, phase: 'over', ended: 'banked', step: survived, payout, log };
+              }
+              // Surviving releases the world: the wave passed, the ground
+              // reforms, and all five positions are live again for the next
+              // step. Only a run-ending strike leaves the world broken —
+              // holding the end state through the decision would both freeze
+              // the diorama mid-transformation and imply the arc that just
+              // swept is still there, which it is not.
+              return { ...current, phase: 'choosing', step: survived, log, landing: undefined };
+            });
 
-          // The presentation is over, so tell the host to stop withholding
-          // the winnings. This is a REQUIRED part of the guest contract, not
-          // an optimisation: from `openSession` until this call the host
-          // clamps its balance displays so they can move down but never up,
-          // deliberately, so the top bar can't spoil the outcome before the
-          // world finishes breaking. Skip it and a win looks like the player
-          // simply lost their wager — the payout is already final on-chain,
-          // only its display is held back. Display-only, so a failure here
-          // must never surface as a betting error.
-          if (sessionId) {
-            void hostApiRef.current?.revealOutcome({ sessionId }).catch(() => {});
-          }
-        }, BREAK_MS[result.outcome]);
+            if (record.struck) {
+              playLose();
+            } else if (record.step >= MAX_STEPS) {
+              playWin();
+            } else {
+              playClimb(record.step);
+            }
+
+            // The presentation is over, so tell the host to stop withholding
+            // the winnings. This is a REQUIRED part of the guest contract, not
+            // an optimisation: from `openSession` until this call the host
+            // clamps its balance displays so they can move down but never up,
+            // deliberately, so the top bar can't spoil the outcome. Skip it and
+            // a win looks like the player simply lost their stake. Display
+            // only, so a failure here must never surface as a betting error.
+            if (settled && sessionId) {
+              void hostApiRef.current?.revealOutcome({ sessionId }).catch(() => {});
+            }
+          },
+          record.struck ? FRACTURE_MS : SAFE_MS,
+        );
       }, HOLD_MS);
     }, floorDelay);
-  }, [round, snapshot]);
+  }, [run, snapshot]);
 
   // A soft heartbeat while the VRF round-trip runs longer than the initial
-  // tension sweep, so a slow settle doesn't read as the game having stalled.
-  // Stops the instant we leave 'waiting' (i.e. right as the silent hold beat
-  // begins), which is what keeps the silence in "silence -> reveal" honest.
+  // tension sweep, so a slow step doesn't read as the game having stalled.
   useEffect(() => {
-    if (round?.status !== 'waiting') return;
+    if (phase !== 'awaiting') return;
     const id = window.setInterval(() => playTensionPulse(), TENSION_PULSE_MS);
     return () => window.clearInterval(id);
-  }, [round?.status]);
+  }, [phase]);
 
   useEffect(
     () => () => {
       window.clearTimeout(lockTimer.current);
       window.clearTimeout(floorTimer.current);
       window.clearTimeout(holdTimer.current);
-      window.clearTimeout(settleTimer.current);
+      window.clearTimeout(landTimer.current);
     },
     [],
   );
 
-  const pick = useCallback((next: Reality) => {
-    unlockAudio();
-    startAmbient();
-    playSelect();
-    setPrediction(next);
-  }, []);
+  const place = useCallback(
+    (next: Position) => {
+      if (!canMove) return;
+      unlockAudio();
+      startAmbient();
+      playSelect();
+      setAnchor(next);
+    },
+    [canMove],
+  );
 
-  /**
-   * Places a round. `stakeOverride` exists for "let it ride", which needs to
-   * bet an amount computed in the same tick — reading it from `wagerInput`
-   * would pick up the previous value, since a state update isn't visible
-   * until the next render.
-   */
-  const submit = useCallback(async (stakeOverride?: bigint) => {
-    const stake = stakeOverride ?? wager;
-    if (!hostApi || !stake) return;
+  /** Opens a fresh run at the current wager and anchor. */
+  const startRun = useCallback(async () => {
+    if (!hostApi || !wager) return;
     unlockAudio();
     startAmbient();
     setError(null);
 
-    const id = roundSeq.current++;
-    const openedAt = Date.now();
+    const id = runSeq.current++;
+    const committedAt = Date.now();
     const knownKeys = (snapshot?.sessions.items ?? []).map(item => item.sessionKey);
-    // "Prediction locked" — the commit itself, before the network round-trip.
-    setRound({ id, knownKeys, prediction, wager: stake, status: 'opening', openedAt });
+    setRun({
+      id,
+      knownKeys,
+      wager,
+      step: 0,
+      presented: 0,
+      phase: 'committing',
+      log: [],
+      committedAt,
+    });
     playLock();
 
     try {
       const { sessionKey } = await hostApi.openSession({
-        wager: stake.toString(),
-        gameData: encodeGameData(prediction),
+        wager: wager.toString(),
+        gameData: encodeGameData(anchor),
       });
-      // The bet is already placed — this only delays *our own* visual exit
-      // from the "locked" beat, so the lock-flash isn't cut off by a session
-      // open that resolves in a handful of ms (demo mode has no real network
-      // round-trip). A real host's tx round-trip already exceeds LOCK_MS.
-      const lockElapsed = Date.now() - openedAt;
+      // The bet is already placed — this only delays our own visual exit from
+      // the "committed" beat so the lock flash isn't cut off by a session open
+      // that resolves in a handful of ms (demo mode has no network round-trip).
+      const lockElapsed = Date.now() - committedAt;
       window.clearTimeout(lockTimer.current);
-      lockTimer.current = window.setTimeout(() => {
-        setRound(current =>
-          current && current.id === id ? { ...current, sessionKey, status: 'waiting' } : current,
-        );
-        playAnticipation();
-      }, Math.max(0, LOCK_MS - lockElapsed));
+      lockTimer.current = window.setTimeout(
+        () => {
+          setRun(current =>
+            current && current.id === id ? { ...current, sessionKey, phase: 'awaiting' } : current,
+          );
+          playAnticipation();
+        },
+        Math.max(0, LOCK_MS - lockElapsed),
+      );
     } catch (e) {
-      setRound(null);
-      setError(e instanceof Error ? e.message : 'The bet could not be placed.');
+      setRun(null);
+      setError(e instanceof Error ? e.message : 'The run could not be opened.');
     }
-  }, [hostApi, wager, prediction, snapshot]);
+  }, [hostApi, wager, anchor, snapshot]);
+
+  /** ONE MORE — anchor reality somewhere and take another step. */
+  const continueRun = useCallback(async () => {
+    if (!hostApi || !run || run.phase !== 'choosing' || !run.sessionId) return;
+    unlockAudio();
+    setError(null);
+    const runId = run.id;
+    const committedAt = Date.now();
+    setRun(current =>
+      current && current.id === runId
+        ? { ...current, phase: 'committing', landing: undefined, committedAt }
+        : current,
+    );
+    playLock();
+
+    try {
+      await hostApi.submitAction({
+        sessionId: run.sessionId,
+        actionData: encodeAction(ACTION_CONTINUE, anchor),
+      });
+      const lockElapsed = Date.now() - committedAt;
+      window.clearTimeout(lockTimer.current);
+      lockTimer.current = window.setTimeout(
+        () => {
+          setRun(current =>
+            current && current.id === runId && current.phase === 'committing'
+              ? { ...current, phase: 'awaiting' }
+              : current,
+          );
+          playAnticipation();
+        },
+        Math.max(0, LOCK_MS - lockElapsed),
+      );
+    } catch (e) {
+      setRun(current => (current && current.id === runId ? { ...current, phase: 'choosing' } : current));
+      setError(e instanceof Error ? e.message : 'The step could not be taken.');
+    }
+  }, [hostApi, run, anchor]);
+
+  /** CASH OUT — bank what the run is worth and end it. */
+  const cashOut = useCallback(async () => {
+    if (!hostApi || !run || run.phase !== 'choosing' || !run.sessionId) return;
+    unlockAudio();
+    setError(null);
+    const runId = run.id;
+    setRun(current =>
+      current && current.id === runId ? { ...current, phase: 'committing' } : current,
+    );
+    playLock();
+
+    try {
+      await hostApi.submitAction({
+        sessionId: run.sessionId,
+        actionData: encodeAction(ACTION_CASH_OUT, anchor),
+      });
+    } catch (e) {
+      setRun(current => (current && current.id === runId ? { ...current, phase: 'choosing' } : current));
+      setError(e instanceof Error ? e.message : 'The cash-out could not be placed.');
+    }
+  }, [hostApi, run, anchor]);
+
+  /** Clear the ended run and arm a fresh one at the same stake. */
+  const reset = useCallback(() => {
+    setRun(null);
+    setError(null);
+  }, []);
 
   /**
    * One detent on the wager dial. Steps through a fixed ladder rather than
@@ -388,47 +572,32 @@ export function App() {
       const value = Number(current || '0');
       const next =
         direction > 0
-          ? (ladder.find(step => step > value + 1e-9) ?? ladder[ladder.length - 1])
-          : ([...ladder].reverse().find(step => step < value - 1e-9) ?? ladder[0]);
+          ? (ladder.find(s => s > value + 1e-9) ?? ladder[ladder.length - 1])
+          : ([...ladder].reverse().find(s => s < value - 1e-9) ?? ladder[0]);
       return next.toFixed(2);
     });
     playTick();
   }, []);
 
-  /**
-   * Roll the winnings straight into the next round.
-   *
-   * This is *not* a new game mechanic — there is no multi-step session, no
-   * on-chain "streak" and nothing riding between rounds. It is one tap that
-   * sets the stake to what was just won and opens a fresh, independent
-   * round at the same fixed 95% RTP. The escalation is the player's own
-   * money compounding by choice, which is why it can be offered honestly.
-   */
-  const letItRide = useCallback(() => {
-    const won = round?.result?.won ? (round.payout ?? 0n) : 0n;
-    if (won <= 0n) return;
-    // Never stake more than the balance actually holds — the host would
-    // reject it, and the player would just get an error instead of a round.
-    const stake = balance !== undefined && won > balance ? balance : won;
-    if (stake <= 0n) return;
-    setWagerInput(formatUnits(stake, decimals));
-    void submit(stake);
-  }, [round, balance, decimals, submit]);
-
   // --- derived view state ----------------------------------------------------
+  const landing = run?.landing;
+  // 'choosing' maps to 'idle', not 'settled': between steps the world is at
+  // rest (carrying its permanent damage), because the step that just resolved
+  // is over. Only an ended run holds the broken state.
   const worldPhase: WorldPhase =
-    round === null || (round.status === 'settled' && !round.result)
+    phase === 'idle' || phase === 'choosing'
       ? 'idle'
-      : round.status === 'opening' || round.status === 'waiting'
+      : phase === 'committing' || phase === 'awaiting'
         ? 'anticipation'
-        : round.status === 'holding'
-          ? 'holding'
-          : round.status === 'breaking'
+        : phase === 'resolving'
+          ? landing
             ? 'breaking'
-            : 'settled';
+            : 'holding'
+          : 'settled';
 
-  const shownOutcome = round?.result?.outcome ?? null;
-  const potential = wager ? payoutFor(wager, prediction) : 0n;
+  const activeLaw = landing?.law ?? null;
+  const struckNow = landing?.struck ?? false;
+  const arc = landing ? { start: landing.arcStart, length: landing.arcLength } : null;
 
   const fmt = (v: bigint) => {
     const s = formatUnits(v, decimals);
@@ -440,11 +609,13 @@ export function App() {
   /** 100% = nothing has broken yet; 0% = every law is fully maxed out. */
   const stabilityPct = Math.round(100 - (totalDamage / (REALITIES.length * MAX_DAMAGE)) * 100);
 
-  const canBet =
+  const overWager = maxWager !== undefined && wager !== null && wager > maxWager;
+  const canStart =
     !!hostApi &&
     !!wager &&
-    !busy &&
+    !inFlight &&
     ready &&
+    !overWager &&
     (balance === undefined || wager <= balance);
 
   return (
@@ -452,112 +623,133 @@ export function App() {
       <header className="topbar">
         <div>
           <h1 className="wordmark">Fracture</h1>
-          <p className="tagline">Reality doesn&rsquo;t bend. It breaks.</p>
+          <p className="tagline">Place your reality. Then survive it.</p>
         </div>
         <div className="balance">
           {demo && <span className="demo-pill">Demo</span>}
           {balance !== undefined && (
-            <>
-              <strong>
-                {fmt(balance)} {symbol}
-              </strong>
-            </>
+            <strong>
+              {fmt(balance)} {symbol}
+            </strong>
           )}
         </div>
       </header>
 
-      {/*
-        Two regions below the header: the world (big, dominant) and the
-        controls (law cards + wager, grouped together) — stacked on mobile,
-        side by side once there's enough width to actually use, the same
-        split the SDK's own Coinflip reference example uses (big visual one
-        side, compact control column the other) instead of a single narrow
-        centered column with dead space either side of it on a wide viewport.
-      */}
       <div className="layout">
         <div className="world-wrap">
           <WorldCanvas
             phase={worldPhase}
-            outcome={shownOutcome}
-            selected={prediction}
+            law={activeLaw}
+            anchor={anchor}
+            arc={arc}
+            struck={struckNow}
             damage={damage}
-            previewLaw={worldPhase === 'idle' ? previewLaw : null}
+            step={step}
           />
 
-          {round && (round.status === 'opening' || round.status === 'waiting') && (
+          {/* The ladder: what the run is worth now, and what one more is worth.
+              This is the whole decision, so it sits on the world, not buried
+              in a panel. */}
+          {/* Not once the run is over: the result banner and the run log own
+              that moment, and the ladder would sit on top of them. */}
+          {run && phase !== 'idle' && phase !== 'over' && (
+            <div className="ladder" data-phase={phase}>
+              <div className="ladder-cell">
+                <span className="ladder-label">Banked</span>
+                <span className="ladder-value">{step > 0 ? `${multiplierAt(step).toFixed(4)}×` : '—'}</span>
+                <span className="ladder-sub">{step > 0 ? `${fmt(banked)} ${symbol}` : 'step 0'}</span>
+              </div>
+              <div className="ladder-arrow" aria-hidden="true">
+                →
+              </div>
+              <div className="ladder-cell ladder-next">
+                <span className="ladder-label">One more</span>
+                <span className="ladder-value">{multiplierAt(nextStep).toFixed(4)}×</span>
+                <span className="ladder-sub">
+                  {stepSurvivalPct(nextStep).toFixed(0)}% survive · {hazardAt(nextStep)} of 5 go
+                </span>
+              </div>
+            </div>
+          )}
+
+          {phase === 'awaiting' && (
             <p className="status">
-              <span className="dots">Reality is deciding</span>
+              <span className="dots">Drawing the fracture</span>
             </p>
           )}
 
-          {round?.status === 'settled' && round.result && (
-            <div className={`result ${round.result.won ? 'win' : 'lose'}`}>
+          {phase === 'over' && run && (
+            <div className={`result ${run.ended === 'banked' ? 'win' : 'lose'}`}>
               <p className="result-headline">
-                {REALITY[round.result.outcome].name} broke
+                {run.ended === 'banked'
+                  ? run.step >= MAX_STEPS
+                    ? 'You ran the whole ladder'
+                    : 'Banked'
+                  : 'Reality fractured'}
               </p>
               <p className="result-detail">
-                {round.result.won ? (
+                {run.ended === 'banked' ? (
                   <>
-                    You called it —{' '}
+                    {run.step} {run.step === 1 ? 'step' : 'steps'} —{' '}
                     <span className="amount amount-win">
-                      +{fmt(round.payout ?? 0n)} {symbol}
+                      +{fmt(run.payout ?? 0n)} {symbol}
                     </span>{' '}
-                    at {multiplierOf(round.result.prediction).toFixed(4)}&times;
+                    at {multiplierAt(run.step).toFixed(4)}&times;
                   </>
                 ) : (
                   <>
-                    You called {REALITY[round.result.prediction].name} —{' '}
+                    {REALITY[run.log[run.log.length - 1]?.law ?? 0].name} took the{' '}
+                    {ANCHOR[run.log[run.log.length - 1]?.anchor ?? 0].name} on step {run.log.length}{' '}
+                    —{' '}
                     <span className="amount amount-lose">
-                      &minus;{fmt(round.wager)} {symbol}
+                      &minus;{fmt(run.wager)} {symbol}
                     </span>
                   </>
                 )}
               </p>
-
-              {round.result.bucket >= 0 && (
-                <RollReadout
-                  bucket={round.result.bucket}
-                  prediction={round.result.prediction}
-                  outcome={round.result.outcome}
-                />
-              )}
+              {run.log.length > 0 && <ArcReadout log={run.log} />}
             </div>
           )}
         </div>
 
         <div className="controls">
           <section className="panel">
-            <p className="section-label">Which law breaks next?</p>
-            <p className="section-hint">Arm one, then fracture it:</p>
-            <div className="picks">
-              {REALITIES.map(id => (
-                <button
-                  key={id}
-                  type="button"
-                  data-law={REALITY[id].key}
-                  // Brief one-shot flash the instant this prediction is locked
-                  // in, distinct from the persistent aria-pressed selection
-                  // styling.
-                  className={`pick${prediction === id && round?.status === 'opening' ? ' locking' : ''}`}
-                  aria-pressed={prediction === id}
-                  disabled={busy}
-                  onClick={() => pick(id)}
-                  onMouseEnter={() => setPreviewLaw(id)}
-                  onMouseLeave={() => setPreviewLaw(current => (current === id ? null : current))}
-                  onFocus={() => setPreviewLaw(id)}
-                  onBlur={() => setPreviewLaw(current => (current === id ? null : current))}
-                >
-                  <span className="pick-glyph" aria-hidden="true">
-                    {GLYPH[id]}
-                  </span>
-                  <span className="pick-name">{REALITY[id].name}</span>
-                  <span className="pick-mult">{multiplierOf(id).toFixed(2)}&times;</span>
-                  <span className="pick-chance">{chanceOf(id)}%</span>
-                </button>
-              ))}
+            <p className="section-label">
+              {phase === 'choosing' ? 'Where does reality go next?' : 'Place your reality'}
+            </p>
+            <p className="section-hint">
+              {canMove
+                ? 'Every position carries the same odds. Choose anyway.'
+                : 'Anchor locked — the fracture is being drawn.'}
+            </p>
+            <div className="picks picks-anchors">
+              {ANCHORS.map(id => {
+                const hit = landing ? arcPositions(landing.arcStart, landing.arcLength).includes(id) : false;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    data-anchor={ANCHOR[id].key}
+                    className={
+                      `pick pick-anchor` +
+                      (anchor === id && phase === 'committing' ? ' locking' : '') +
+                      (landing && hit ? ' struck' : '') +
+                      (landing && !hit ? ' spared' : '')
+                    }
+                    aria-pressed={anchor === id}
+                    disabled={!canMove}
+                    onClick={() => place(id)}
+                  >
+                    <span className="pick-glyph" aria-hidden="true">
+                      {ANCHOR_GLYPH[id]}
+                    </span>
+                    <span className="pick-name">{ANCHOR[id].name}</span>
+                  </button>
+                );
+              })}
             </div>
-            <p key={prediction} className="pick-note" data-law={REALITY[prediction].key}>
-              {REALITY[prediction].tagline}
+            <p key={anchor} className="pick-note" data-anchor={ANCHOR[anchor].key}>
+              {ANCHOR[anchor].blurb}
             </p>
           </section>
 
@@ -604,75 +796,125 @@ export function App() {
           )}
 
           <section className="panel">
-            <p className="section-label">Wager</p>
-            <div className="wager-row">
-              <div className="wager-field">
-                <input
-                  inputMode="decimal"
-                  value={wagerInput}
-                  disabled={busy}
-                  onChange={e => setWagerInput(e.target.value)}
-                  aria-label={`Wager in ${symbol}`}
-                />
-                <span className="unit">{symbol}</span>
-              </div>
-              <button
-                type="button"
-                className="step"
-                aria-label="Decrease wager"
-                disabled={busy}
-                onClick={() => stepWager(-1)}
-              >
-                &minus;
-              </button>
-              <button
-                type="button"
-                className="step"
-                aria-label="Increase wager"
-                disabled={busy}
-                onClick={() => stepWager(1)}
-              >
-                +
-              </button>
-              <button
-                type="button"
-                className="chip chip-max"
-                disabled={busy || balance === undefined}
-                onClick={() => balance !== undefined && setWagerInput(formatUnits(balance, decimals))}
-              >
-                Max
-              </button>
-            </div>
+            {phase === 'choosing' ? (
+              <>
+                <p className="section-label">Step {step} survived</p>
+                <div className="decision">
+                  <button type="button" className="cash" onClick={() => void cashOut()}>
+                    <span className="key-line">Cash out</span>
+                    <span className="key-sub">
+                      {fmt(banked)} {symbol} · {multiplierAt(step).toFixed(2)}&times;
+                    </span>
+                  </button>
+                  <button type="button" className="cta more" onClick={() => void continueRun()}>
+                    <span className="key-line">One more</span>
+                    <span className="key-sub">
+                      {multiplierAt(nextStep).toFixed(2)}&times; · {stepSurvivalPct(nextStep).toFixed(0)}%
+                    </span>
+                  </button>
+                </div>
+                <p className="payout-preview">
+                  Surviving pays <strong>{fmt(payoutFor(run?.wager ?? 0n, nextStep))} {symbol}</strong>.
+                  Losing ends the run at zero.
+                </p>
+              </>
+            ) : phase === 'over' ? (
+              <>
+                <p className="section-label">Wager</p>
+                <div className="wager-row">
+                  <div className="wager-field">
+                    <input
+                      inputMode="decimal"
+                      value={wagerInput}
+                      onChange={e => setWagerInput(e.target.value)}
+                      aria-label={`Wager in ${symbol}`}
+                    />
+                    <span className="unit">{symbol}</span>
+                  </div>
+                  <button type="button" className="step" aria-label="Decrease wager" onClick={() => stepWager(-1)}>
+                    &minus;
+                  </button>
+                  <button type="button" className="step" aria-label="Increase wager" onClick={() => stepWager(1)}>
+                    +
+                  </button>
+                </div>
+                <button type="button" className="cta" disabled={!canStart} onClick={() => { reset(); void startRun(); }}>
+                  Run it again
+                </button>
+                <p className="payout-preview">
+                  Step 1 pays {multiplierAt(1).toFixed(4)}&times; at {stepSurvivalPct(1).toFixed(0)}%.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="section-label">Wager</p>
+                <div className="wager-row">
+                  <div className="wager-field">
+                    <input
+                      inputMode="decimal"
+                      value={wagerInput}
+                      disabled={inFlight}
+                      onChange={e => setWagerInput(e.target.value)}
+                      aria-label={`Wager in ${symbol}`}
+                    />
+                    <span className="unit">{symbol}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="step"
+                    aria-label="Decrease wager"
+                    disabled={inFlight}
+                    onClick={() => stepWager(-1)}
+                  >
+                    &minus;
+                  </button>
+                  <button
+                    type="button"
+                    className="step"
+                    aria-label="Increase wager"
+                    disabled={inFlight}
+                    onClick={() => stepWager(1)}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="chip chip-max"
+                    disabled={inFlight || balance === undefined}
+                    onClick={() => {
+                      if (balance === undefined) return;
+                      const cap = maxWager !== undefined && maxWager < balance ? maxWager : balance;
+                      setWagerInput(formatUnits(cap, decimals));
+                    }}
+                  >
+                    Max
+                  </button>
+                </div>
 
-            {/* After a round settles the primary key goes straight back into
-                another round — no "shift again" step in between. The dead
-                time between rounds was the whole reason a session ended
-                after two or three of them. */}
-            {round?.status === 'settled' && round.result?.won && (round.payout ?? 0n) > 0n && (
-              <button type="button" className="ride" onClick={letItRide}>
-                Let it ride · {fmt(round.payout ?? 0n)} {symbol}
-              </button>
+                <button type="button" className="cta" disabled={!canStart} onClick={() => void startRun()}>
+                  {inFlight ? 'Drawing…' : 'Enter the run'}
+                </button>
+
+                <p className="payout-preview">
+                  {wager ? (
+                    <>
+                      Step 1 pays{' '}
+                      <strong>
+                        {fmt(payoutFor(wager, 1))} {symbol}
+                      </strong>{' '}
+                      at {multiplierAt(1).toFixed(4)}&times; &middot; {stepSurvivalPct(1).toFixed(0)}% survive
+                    </>
+                  ) : (
+                    'Enter a wager'
+                  )}
+                </p>
+                {overWager && maxWager !== undefined && (
+                  <p className="error">
+                    The vault will not cover a run this size. Maximum {fmt(maxWager)} {symbol}.
+                  </p>
+                )}
+              </>
             )}
-            <button
-              type="button"
-              className="cta"
-              data-law={REALITY[prediction].key}
-              disabled={!canBet}
-              onClick={() => void submit()}
-            >
-              {busy ? 'Fracturing…' : `Fracture ${REALITY[prediction].name}`}
-            </button>
-
-            <p className="payout-preview">
-              {wager ? (
-                <>
-                  Pays <strong>{fmt(potential)} {symbol}</strong> at {multiplierOf(prediction).toFixed(4)}&times; &middot;{' '}
-                  {chanceOf(prediction)}% chance
-                </>
-              ) : (
-                'Enter a wager'
-              )}
-            </p>
 
             {error && <p className="error">{error}</p>}
           </section>
@@ -680,11 +922,13 @@ export function App() {
       </div>
 
       <p className="footnote">
-        95.00% RTP on every outcome, fixed by construction: payout = wager &times; 95 / weight, so
-        probability &times; payout is exactly 0.95 for all five.
+        95.00% RTP at every stopping point, fixed by construction: the multiplier after k steps is
+        0.95 &divide; the chance of surviving k steps, so cashing out at step 1, step 7 or riding to{' '}
+        {multiplierAt(MAX_STEPS).toFixed(2)}&times; all return exactly 95%. Reaching the top happens{' '}
+        {reachPct(MAX_STEPS).toFixed(4)}% of the time.
         {demo
-          ? ' Demo mode — play money, local RNG, no chain. Real rounds settle on-chain via Chain VRF.'
-          : ' Outcomes come from Chain’s VRF and settle on-chain.'}
+          ? ' Demo mode — play money, local RNG, no chain. Real runs settle on-chain via Chain VRF, one fresh draw per step.'
+          : ' Every step draws a fresh word from Chain’s VRF, after your anchor is committed.'}
       </p>
     </div>
   );

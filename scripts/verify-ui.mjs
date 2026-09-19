@@ -1,14 +1,18 @@
 /**
- * Drives the real game in a real browser.
+ * Jam-eligibility checks in a real browser.
  *
- * Checks the things that fail silently and would otherwise only be discovered
- * by a judge:
- *   1. Standalone mode actually plays a full round outside any host iframe
- *      (jam eligibility requires a playable demo on the bare URL).
+ * These are the things that fail silently and would otherwise only be
+ * discovered by a judge:
+ *   1. The bare URL loads and is playable with no host present.
  *   2. The page is genuinely embeddable in a cross-origin iframe — the gallery
  *      preview breaks silently if X-Frame-Options sneaks in.
  *   3. Each of the five transformations is actually applied to the DOM.
- *   4. No console errors during a round.
+ *   4. The declared RTP is stated on the page and matches the manifest.
+ *   5. No console errors.
+ *
+ * Playing the game itself — the ladder, the decision, cash-out, strikes and
+ * the balance credit — is `scripts/verify-run.mjs`. Splitting them keeps this
+ * file about eligibility and that one about the mechanic.
  *
  * Usage: node scripts/verify-ui.mjs [url]
  */
@@ -53,8 +57,11 @@ async function main() {
   const widget = await page.locator('script[src*="jam.chain.wtf/widget.js"]').count();
   ok(widget === 1, 'jam widget script tag is on the page');
 
-  const picks = await page.locator('.pick').count();
-  ok(picks === 5, `five prediction cards rendered`);
+  const picks = await page.locator('.pick-anchor').count();
+  ok(picks === 5, `five anchor positions rendered`);
+
+  const cta = (await page.locator('.cta').innerText()).trim();
+  ok(/run/i.test(cta), 'the primary key opens a run', `reads "${cta}"`);
 
   // no horizontal overflow at phone width
   const overflow = await page.evaluate(
@@ -62,72 +69,26 @@ async function main() {
   );
   ok(!overflow, 'no horizontal page scroll at 390px');
 
-  // --- 2. play one full round per outcome ----------------------------------
-  console.log('\n2. Playing a full round for each prediction');
-  const seen = new Set();
-  for (let i = 0; i < 5; i++) {
-    // The primary key goes straight into another round once one settles, so
-    // wait for it to be live again rather than clicking a separate reset.
-    await page.locator('.cta:not([disabled])').waitFor({ timeout: 15000 });
-    await page.locator('.pick').nth(i).click();
-    const label = await page.locator('.pick').nth(i).locator('.pick-name').innerText();
-
-    // The previous round's banner unmounts the moment a new round opens;
-    // waiting for that first is what keeps the read below from picking up
-    // the last round's result.
-    await page.locator('.cta').click();
-    await page.locator('.result').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
-
-    // anticipation beat
-    await page.waitForSelector(".world[data-phase='anticipation']", { timeout: 5000 });
-
-    // the world breaks
-    await page.waitForSelector('.world[data-break]', { timeout: 10000 });
-    const broke = await page.locator('.world').getAttribute('data-break');
-    seen.add(broke);
-
-    // result banner
-    await page.waitForSelector('.result', { timeout: 10000 });
-    const headline = await page.locator('.result-headline').innerText();
-    const detail = await page.locator('.result-detail').innerText();
-    ok(
-      !!broke && !!headline,
-      `predicted ${label.padEnd(7)} -> ${broke.padEnd(7)} | ${headline.trim()}`,
-      detail.trim(),
-    );
-  }
-
-  // --- 2b. a win must actually credit the balance --------------------------
-  // Regression guard for a shipped bug: winnings are withheld from the
-  // displayed balance until the game calls `revealOutcome` at the end of its
-  // result presentation, so forgetting that call makes a win look like a
-  // loss — the balance only ever ticks down. Bet the highest-probability
-  // outcome until one lands, then assert the balance really went UP.
-  // (Moved here when the drag-to-lock Core was removed; it never had
-  // anything to do with dragging.)
-  console.log('\n2b. A winning round credits the balance');
-  let sawWin = false;
-  for (let attempt = 0; attempt < 12 && !sawWin; attempt++) {
-    await page.locator('.cta:not([disabled])').waitFor({ timeout: 15000 });
-    await page.locator('.pick').first().click(); // Gravity, 45%
-    const before = Number((await page.locator('.balance').innerText()).replace(/[^\d.]/g, ''));
-    await page.locator('.cta').click();
-    await page.locator('.result').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
-    await page.locator('.result').waitFor({ state: 'visible', timeout: 20000 });
-    const detail = (await page.locator('.result-detail').innerText()).trim();
-    await page.waitForTimeout(400); // let the reveal's balance push land
-    const after = Number((await page.locator('.balance').innerText()).replace(/[^\d.]/g, ''));
-
-    if (detail.includes('You called it')) {
-      sawWin = true;
-      ok(
-        after > before,
-        'a win increases the balance (revealOutcome released the winnings)',
-        `${before} -> ${after} (net +${(after - before).toFixed(4)})`,
-      );
-    }
-  }
-  if (!sawWin) ok(false, 'no Gravity win in 12 attempts at 45% (investigate)');
+  // --- 2. the declared RTP is on the page and matches the manifest ---------
+  // Jam eligibility requires the declared math to match the paytable, so the
+  // number a judge reads on the page has to be the number in the manifest.
+  console.log('\n2. Declared RTP');
+  const footnote = (await page.locator('.footnote').innerText()).trim();
+  ok(/95\.00% RTP/.test(footnote), 'the page states its RTP', footnote.slice(0, 90));
+  ok(
+    /every stopping point/i.test(footnote),
+    'and states that it holds at every stopping point, which is the whole claim',
+  );
+  // `URL` is the target page in this file, not the global — build the path by hand.
+  const manifestUrl = `${URL.replace(/\/+$/, '')}/game.manifest.json`;
+  const manifest = await (await page.request.get(manifestUrl)).json();
+  ok(manifest.jam?.rtp === 0.95, 'the manifest declares the same 95%', `manifest says ${manifest.jam?.rtp}`);
+  ok(
+    manifest.capabilities?.submitAction === true,
+    'the manifest declares submitAction — without it the host will not route a step',
+  );
+  const [lo, hi] = manifest.jam?.rtpBand ?? [];
+  ok(lo === 0.93 && hi === 0.98, 'and sits inside the 93-98% band');
 
   // --- 3. every transformation reachable ------------------------------------
   console.log('\n3. Transformation coverage');

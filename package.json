@@ -3,7 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "verify:rtp": "node scripts/verify-rtp.mjs"
+    "verify:rtp": "node scripts/verify-run-rtp.mjs",
+    "verify:rtp:classic": "node scripts/verify-rtp.mjs",
+    "verify:chain": "node scripts/e2e-run.mjs",
+    "verify:run": "node scripts/verify-run.mjs",
+    "verify:ui": "node scripts/verify-ui.mjs",
+    "verify": "npm run verify:rtp && npm run verify:chain && npm run verify:ui && npm run verify:run"
   },
   "devDependencies": {
     "playwright": "^1.63.0",

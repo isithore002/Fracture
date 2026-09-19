@@ -29,6 +29,52 @@ export type SceneState = {
   selected: Reality;
   /** Per-law damage levels, 0..MAX_DAMAGE. The world's memory of the session. */
   damage: Record<Reality, number>;
+  /** Which of the five ring positions the Reality Anchor is standing on. */
+  anchor: number;
+  /**
+   * The arc being destroyed this step, or null.
+   *
+   * Null for the whole of 'anticipation' by design: the VRF word that picks
+   * the arc does not exist until after the anchor is committed, so there is
+   * nothing here to draw and nothing to leak.
+   */
+  arc: { start: number; length: number } | null;
+  /** True when the landing arc contained the anchor. */
+  struck: boolean;
+};
+
+/** The five world positions, as a ring. Neighbours here are neighbours in the
+ *  world, which is what makes an arc read as one sweeping wave rather than a
+ *  scatter of unrelated explosions. Index order matches `ANCHOR` in
+ *  lib/fractureRun.ts: HILLTOP, ORCHARD, HEARTH, FENCELINE, HOLLOW. */
+const RING_RADIUS = 1.62;
+const RING_CENTER = { x: 0, z: -0.1 };
+const RING: Array<{ x: number; z: number }> = Array.from({ length: 5 }, (_, i) => {
+  // Start at the back and walk counter-clockwise, so the ring reads left to
+  // right across the frame the way the HUD keys are ordered.
+  const theta = -(i * 72 * Math.PI) / 180;
+  return {
+    x: RING_CENTER.x + RING_RADIUS * Math.sin(theta),
+    z: RING_CENTER.z - RING_RADIUS * Math.cos(theta),
+  };
+});
+
+/**
+ * A point pushed `d` further out from the ring's centre than position `i`.
+ *
+ * The landmarks sit just outside their pads rather than on top of them, so
+ * the pad stays visible and the Anchor has somewhere to stand that isn't
+ * inside the house.
+ */
+const ringOut = (i: number, d: number): { x: number; z: number } => {
+  // Sideways along the ring, not outward from its centre. Outward looks
+  // natural on paper but puts the near-side landmarks directly between the
+  // camera and their own markers, so HEARTH and FENCELINE went invisible.
+  // A tangential offset stands the landmark BESIDE its position instead.
+  const dx = RING[i].x - RING_CENTER.x;
+  const dz = RING[i].z - RING_CENTER.z;
+  const len = Math.hypot(dx, dz) || 1;
+  return { x: RING[i].x - (dz / len) * d, z: RING[i].z + (dx / len) * d };
 };
 
 /**
@@ -100,18 +146,19 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
 
   const scene = new THREE.Scene();
   // Fog in the sky's own colour is what turns a flat object layout into depth.
-  scene.fog = new THREE.Fog(0x1a1338, 9, 26);
+  scene.fog = new THREE.Fog(0x1a1338, 13, 34);
 
   /* ---------------------------------------------------------------- camera */
   // A long lens (low FOV) pulled far back: the miniature/diorama look comes
   // from compressed perspective, not from making the objects small.
   const camera = new THREE.PerspectiveCamera(26, initialWidth / initialHeight, 0.1, 100);
-  const cameraHome = new THREE.Vector3(5.0, 2.85, 8.6);
+  // Raised and near-centred, because the ring of five positions IS the board
+  // now: the shot has to read as a whole playable surface, not as a landscape
+  // with a house in the foreground. Low and off to one side made the nearest
+  // position loom over the other four.
+  const cameraHome = new THREE.Vector3(0, 3.4, 11.8);
   camera.position.copy(cameraHome);
-  // Aimed slightly above the rooftops: framing the diorama in the lower two
-  // thirds with the moon in the upper left, rather than centring the ground
-  // and leaving a band of dead sky across the top.
-  const lookTarget = new THREE.Vector3(-0.15, 1.05, 0);
+  const lookTarget = new THREE.Vector3(0, 0.85, -0.3);
   camera.lookAt(lookTarget);
 
   /* --------------------------------------------------------------- lighting */
@@ -209,8 +256,12 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
   door.position.set(0, 0.2, 0.486);
   house.add(door);
 
-  house.position.set(0.55, 0, 0.1);
-  house.rotation.y = -0.22;
+  // The props sit ON the ring, not around it: each position is somewhere the
+  // player can actually stand, so an arc destroys recognisable places rather
+  // than empty ground. HEARTH is the house.
+  const hearth = ringOut(2, 0.34);
+  house.position.set(hearth.x, 0, hearth.z);
+  house.rotation.y = 0.42;
   world.add(house);
   const houseEntry = register(house, 1.7, 2.4);
 
@@ -222,10 +273,11 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
     new THREE.MeshStandardMaterial({ color: 0x2f7d5c, roughness: 0.85, flatShading: true }),
   );
 
+  // ORCHARD — the three old trees, clustered on their position.
   const treeSpecs = [
-    { x: -1.5, z: 0.35, s: 1.0, seed: 0.4 },
-    { x: 1.75, z: -0.55, s: 0.76, seed: 2.1 },
-    { x: -0.75, z: -1.35, s: 0.62, seed: 3.6 },
+    { x: ringOut(1, 0.38).x, z: ringOut(1, 0.38).z + 0.24, s: 1.0, seed: 0.4 },
+    { x: ringOut(1, 0.62).x, z: ringOut(1, 0.62).z - 0.16, s: 0.76, seed: 2.1 },
+    { x: ringOut(1, 0.2).x - 0.26, z: ringOut(1, 0.2).z - 0.4, s: 0.62, seed: 3.6 },
   ];
   const treeEntries: Placed[] = [];
   for (const spec of treeSpecs) {
@@ -246,11 +298,12 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
   /* -------------------------------------------------------------------- rocks */
   const rockGeo = track(new THREE.IcosahedronGeometry(0.17, 0));
   const rockMat = track(new THREE.MeshStandardMaterial({ color: 0x3c3a56, roughness: 1, flatShading: true }));
+  // HOLLOW — the low ground, down among the rocks.
   const rockSpecs = [
-    { x: -0.55, z: 1.15, s: 1.0, seed: 1.1 },
-    { x: 1.35, z: 1.0, s: 0.72, seed: 2.7 },
-    { x: -2.05, z: -0.75, s: 0.85, seed: 4.2 },
-    { x: 0.95, z: -1.5, s: 0.55, seed: 5.3 },
+    { x: ringOut(4, -0.34).x, z: ringOut(4, -0.34).z + 0.2, s: 1.0, seed: 1.1 },
+    { x: ringOut(4, -0.56).x, z: ringOut(4, -0.56).z + 0.04, s: 0.72, seed: 2.7 },
+    { x: ringOut(4, -0.2).x + 0.06, z: ringOut(4, -0.2).z - 0.32, s: 0.85, seed: 4.2 },
+    { x: ringOut(0, 0.45).x, z: ringOut(0, 0.45).z + 0.1, s: 0.55, seed: 5.3 },
   ];
   for (const spec of rockSpecs) {
     const rock = new THREE.Mesh(rockGeo, rockMat);
@@ -276,10 +329,86 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
     rail.position.set(0, railY, 0);
     fence.add(rail);
   }
-  fence.position.set(-1.95, 0, 1.25);
-  fence.rotation.y = 0.28;
+  // FENCELINE — out at the edge of the plot.
+  const fenceSpot = ringOut(3, -0.34);
+  fence.position.set(fenceSpot.x, 0, fenceSpot.z);
+  fence.rotation.y = -0.62;
   world.add(fence);
   register(fence, 2.9, 0.5);
+
+  /* ------------------------------------------------- the ring and the Anchor */
+  // A marker on every position, and the Anchor standing on one of them. This
+  // is the board: five places to be when the next fracture arrives.
+  //
+  // The markers are standing columns, not discs on the ground. The camera sits
+  // only ~12 degrees above the horizon so it can keep the moon in frame, and
+  // at that angle a flat disc projects to a few pixels of ellipse and vanishes.
+  // A vertical element reads at any camera pitch.
+  const padGeo = track(new THREE.CylinderGeometry(0.06, 0.15, 1.45, 14, 1, true));
+  const padRingGeo = track(new THREE.RingGeometry(0.2, 0.3, 24));
+  const padMats = RING.map(() =>
+    track(
+      new THREE.MeshBasicMaterial({
+        color: 0x8fa8d8,
+        transparent: true,
+        opacity: 0.26,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        // Additive so a marker glows through whatever is behind it instead of
+        // occluding the world like a solid post.
+        blending: THREE.AdditiveBlending,
+      }),
+    ),
+  );
+  const pads = RING.map((spot, i) => {
+    const pad = new THREE.Group();
+    const column = new THREE.Mesh(padGeo, padMats[i]);
+    column.position.y = 0.725;
+    pad.add(column);
+    const ring = new THREE.Mesh(padRingGeo, padMats[i]);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.02;
+    pad.add(ring);
+    pad.position.set(spot.x, 0, spot.z);
+    world.add(pad);
+    return pad;
+  });
+
+  // The Anchor itself: a small upright shard of held-together reality. It
+  // travels between pads rather than teleporting, so moving it feels like
+  // moving something.
+  const anchorGroup = new THREE.Group();
+  const anchorGeo = track(new THREE.OctahedronGeometry(0.19, 0));
+  const anchorMat = track(
+    new THREE.MeshStandardMaterial({
+      color: 0xfff2d0,
+      emissive: 0xffd98a,
+      emissiveIntensity: 1.6,
+      roughness: 0.4,
+      flatShading: true,
+    }),
+  );
+  const anchorMesh = new THREE.Mesh(anchorGeo, anchorMat);
+  anchorMesh.position.y = 1.95;
+  anchorGroup.add(anchorMesh);
+
+  const beamGeo = track(new THREE.CylinderGeometry(0.075, 0.19, 1.8, 16, 1, true));
+  const beamMat = track(
+    new THREE.MeshBasicMaterial({
+      color: 0xffd98a,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  const anchorBeam = new THREE.Mesh(beamGeo, beamMat);
+  anchorBeam.position.y = 0.9;
+  anchorGroup.add(anchorBeam);
+
+  anchorGroup.position.set(RING[2].x, 0, RING[2].z);
+  world.add(anchorGroup);
 
   /* --------------------------------------------------------------- moon + sky */
   const moonGeo = track(new THREE.SphereGeometry(0.55, 32, 24));
@@ -295,7 +424,7 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
     }),
   );
   const moon = new THREE.Mesh(moonGeo, moonMat);
-  const moonHome = new THREE.Vector3(-4.8, 2.25, -7.2);
+  const moonHome = new THREE.Vector3(-3.3, 3.5, -9.6);
   moon.position.copy(moonHome);
   scene.add(moon);
 
@@ -463,7 +592,13 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
     preview: null,
     selected: 0,
     damage: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 },
+    anchor: 2,
+    arc: null,
+    struck: false,
   };
+
+  /** Per-pad destruction level, 0..1, eased so an arc lands as a wave. */
+  const padHit = [0, 0, 0, 0, 0];
 
   // Smoothed hover intensities per law, so previews ease in/out instead of
   // snapping as the pointer crosses cards.
@@ -755,16 +890,58 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
     // --- fog + lighting react ----------------------------------------------
     const fog = scene.fog as THREE.Fog;
     if (breaking && outcome === 4) {
-      fog.near = 9 - p * 7;
-      fog.far = 26 - p * 17;
+      fog.near = 13 - p * 9;
+      fog.far = 34 - p * 23;
     } else {
-      fog.near = 9 - staged(v, 0) * 0.7;
-      fog.far = 26 - staged(v, 0) * 2.2 - tension * 1.5;
+      fog.near = 13 - staged(v, 0) * 0.9;
+      fog.far = 34 - staged(v, 0) * 2.8 - tension * 1.7;
     }
     moonLight.intensity =
       1.15 * (1 - (breaking && outcome === 4 ? p * 0.8 : 0)) * (1 - staged(v, 2) * 0.1) +
       tension * 0.12;
     hemi.intensity = 0.85 - staged(v, 1) * 0.06 + hover[1] * 0.1;
+
+    // --- the ring, the Anchor, and the arc ----------------------------------
+    // The pads answer to the arc, and the arc only exists once the step has
+    // resolved on-chain. During 'anticipation' every pad is equally lit,
+    // because at that moment every pad is equally dangerous and the word that
+    // decides has not been drawn yet. Nothing here can hint at it.
+    for (let i = 0; i < 5; i++) {
+      const inArc =
+        state.arc !== null && (i + 5 - state.arc.start) % 5 < state.arc.length;
+      padHit[i] = damp(padHit[i], inArc ? 1 : 0, inArc ? 7 : 2.5, dt);
+
+      const isHere = i === state.anchor;
+      const pad = pads[i];
+      const mat = padMats[i];
+      // Standing on a pad lights it; the tension pulse runs through all five.
+      const pulse = 0.5 + 0.5 * Math.sin(elapsed * 3.4 + i * 1.25);
+      mat.opacity =
+        0.14 +
+        (isHere ? 0.22 : 0) +
+        tension * 0.18 * pulse -
+        padHit[i] * 0.1;
+      mat.color.setHex(padHit[i] > 0.02 ? 0xff7a6a : isHere ? 0xffd98a : 0x8fa8d8);
+      // A struck position drops away and tilts, as if the ground under it went.
+      pad.position.y = -padHit[i] * 0.75;
+      pad.rotation.z = padHit[i] * 0.45 * (i % 2 === 0 ? 1 : -1);
+      pad.scale.setScalar(1 + padHit[i] * 0.35);
+    }
+
+    // The Anchor travels to its pad rather than cutting to it.
+    const home = RING[Math.max(0, Math.min(state.anchor, 4))];
+    anchorGroup.position.x = damp(anchorGroup.position.x, home.x, 9, dt);
+    anchorGroup.position.z = damp(anchorGroup.position.z, home.z, 9, dt);
+    anchorMesh.rotation.y += dt * (0.8 + tension * 2.6);
+    anchorMesh.rotation.x = Math.sin(elapsed * 0.9) * 0.18;
+    // Riding out the strike: if the arc took this position, the Anchor goes
+    // down with it. If it did not, it holds absolutely still — surviving
+    // should look like surviving, not like a near miss.
+    const anchorLost = state.struck ? padHit[Math.max(0, Math.min(state.anchor, 4))] : 0;
+    anchorGroup.position.y = -anchorLost * 0.8;
+    anchorMat.emissiveIntensity = 1.6 * (1 - anchorLost) + tension * 0.9;
+    beamMat.opacity = (0.5 + tension * 0.35) * (1 - anchorLost);
+    anchorMesh.scale.setScalar(1 - anchorLost * 0.7);
 
     // --- camera -------------------------------------------------------------
     // Very restrained: a slow idle drift, a push-in under tension, and a small

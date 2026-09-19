@@ -6,7 +6,7 @@
   "locales": {
     "en": {
       "name": "Fracture",
-      "description": "Predict which law of reality is about to break — Gravity, Time, Scale, Orbit or Void. One wager, one VRF draw, and the whole miniature world transforms to match. 95% RTP on every outcome, fixed by construction."
+      "description": "Anchor reality at one of five places in a miniature world, then survive the fracture that sweeps through it. Survive and the multiplier climbs — cash out, or take one more step into a world that gets less survivable every time. 95% RTP at every stopping point, fixed by construction."
     }
   },
   "presentation": {
@@ -19,8 +19,8 @@
   },
   "capabilities": {
     "openSession": true,
-    "submitAction": false,
-    "forfeitExpiredSession": false,
+    "submitAction": true,
+    "forfeitExpiredSession": true,
     "cancelStuckRandomness": true,
     "resize": true
   },
@@ -36,6 +36,6 @@
     "entryPoint": "/",
     "widgetRequired": true,
     "standalone": true,
-    "mechanic": "world-transformation-prediction"
+    "mechanic": "positional-survival-ladder"
   }
 }

@@ -1,12 +1,18 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Reality } from '../lib/fracture';
+import type { Position } from '../lib/fractureRun';
 import { createFractureScene, type FractureScene, type ScenePhase } from '../three/fractureScene';
 
 type Props = {
   phase: ScenePhase;
-  outcome: Reality | null;
-  preview: Reality | null;
-  selected: Reality;
+  /** The law doing the breaking — only meaningful from 'breaking' onward. */
+  law: Reality | null;
+  /** Which ring position the Reality Anchor stands on. */
+  anchor: Position;
+  /** The arc being destroyed this step, or null while nothing has resolved. */
+  arc: { start: Position; length: number } | null;
+  /** True when the landing arc contained the anchor. */
+  struck: boolean;
   damage: Record<Reality, number>;
   /** Called once if WebGL can't start, so the caller can fall back to the CSS scene. */
   onUnavailable: () => void;
@@ -24,20 +30,39 @@ type Props = {
  */
 export function ThreeWorld({
   phase,
-  outcome,
-  preview,
-  selected,
+  law,
+  anchor,
+  arc,
+  struck,
   damage,
   onUnavailable,
   onReady,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<FractureScene | null>(null);
+
+  // The scene predates run mode and still speaks in `outcome`/`preview`/
+  // `selected`; the translation lives here rather than rippling a rename
+  // through 900 lines of animation that works.
+  const sceneState = useMemo(
+    () => ({
+      phase,
+      outcome: law,
+      preview: null,
+      selected: 0 as Reality,
+      damage,
+      anchor,
+      arc,
+      struck,
+    }),
+    [phase, law, damage, anchor, arc, struck],
+  );
+
   // Held in a ref so the mount effect can seed the scene with current props
   // without taking them as dependencies (which would rebuild the whole world
   // on every prop change).
-  const latest = useRef({ phase, outcome, preview, selected, damage });
-  latest.current = { phase, outcome, preview, selected, damage };
+  const latest = useRef(sceneState);
+  latest.current = sceneState;
   const notifyUnavailable = useRef(onUnavailable);
   notifyUnavailable.current = onUnavailable;
   const notifyReady = useRef(onReady);
@@ -68,8 +93,8 @@ export function ThreeWorld({
   }, []);
 
   useEffect(() => {
-    sceneRef.current?.setState({ phase, outcome, preview, selected, damage });
-  }, [phase, outcome, preview, selected, damage]);
+    sceneRef.current?.setState(sceneState);
+  }, [sceneState]);
 
   return <canvas ref={canvasRef} className="world-gl" aria-hidden="true" />;
 }

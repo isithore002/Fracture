@@ -1,13 +1,19 @@
-import { encodeAbiParameters } from 'viem';
+import { bytesToHex } from 'viem';
 import type { HostApiV1, HostSnapshotV1 } from '@chain/casino-sdk/guest';
 
 import {
-  bucketToOutcome,
-  decodeGameState,
+  ACTION_CONTINUE,
+  MAX_STEPS,
+  decodeRunState,
+  drawFromRandomness,
   encodeGameData,
+  encodeRunState,
+  hazardAt,
+  isStruck,
   payoutFor,
-  type Reality,
-} from './fracture';
+  type Position,
+  type RunState,
+} from './fractureRun';
 
 /**
  * Standalone demo host.
@@ -18,58 +24,60 @@ import {
  * pushes the same `HostSnapshotV1` shape, so `App.tsx` has exactly one code
  * path — there is no "demo branch" threaded through the UI.
  *
- * The outcome mapping is the contract's, byte for byte (reject >= 200, then
- * % 100, then the 45/25/15/10/5 ranges), drawn from `crypto.getRandomValues`.
- * This is a local demo with play money and no chain: it is NOT the VRF path
- * and never settles anything. Real-money rounds inside the host always go
- * through the contract and Chain's VRF.
+ * It reproduces the multi-step session lifecycle faithfully, including the part
+ * that matters most: a step's random word is drawn only AFTER the anchor is
+ * committed, one fresh word per step. Doing it any other way here would hide
+ * the exact class of bug the real design exists to prevent.
+ *
+ * This is a local demo with play money and no chain: it is NOT the VRF path and
+ * never settles anything. Real-money runs inside the host always go through the
+ * contract and Chain's VRF.
  */
 
 const DEMO_TOKEN = { symbol: 'chUSD', decimals: 18 };
 const STARTING_BALANCE = 1000n * 10n ** 18n;
 /** Matches the local simulator's VRF round-trip closely enough to feel real. */
-const DEMO_SETTLE_DELAY_MS = 900;
+const DEMO_VRF_DELAY_MS = 850;
 
 const MANIFEST = {
   schemaVersion: 1 as const,
   gameId: 'FractureGame',
   apiVersion: 1 as const,
   defaultLocale: 'en',
-  locales: { en: { name: 'Fracture', description: 'Predict which law of reality breaks.' } },
+  locales: {
+    en: { name: 'Fracture', description: 'Place your reality. Survive the fracture. Or bank.' },
+  },
   presentation: {
     mode: 'full-iframe' as const,
     hostPanels: { openSession: false, history: false, status: false },
   },
   capabilities: {
     openSession: true as const,
-    submitAction: false,
-    forfeitExpiredSession: false,
-    cancelStuckRandomness: false,
+    submitAction: true,
+    forfeitExpiredSession: true,
+    cancelStuckRandomness: true,
     resize: true,
   },
 };
 
-function randomBucket(): number {
+const SESSION_PHASE = { WAITING_RANDOMNESS: 1, WAITING_PLAYER_ACTION: 2, SETTLED: 3 } as const;
+
+function randomWord(): `0x${string}` {
   const buf = new Uint8Array(32);
-  for (;;) {
-    crypto.getRandomValues(buf);
-    for (const byte of buf) {
-      if (byte < 200) return byte % 100;
-    }
-    // Every byte rejected: draw a fresh word. Probability ~2e-21 per pass.
-  }
+  crypto.getRandomValues(buf);
+  return bytesToHex(buf);
 }
 
 type DemoSession = {
   sessionId: string;
   sessionKey: string;
-  prediction: Reality;
   wager: bigint;
   phase: number;
   payout: bigint;
-  gameState?: `0x${string}`;
-  randomness?: `0x${string}`;
+  state: RunState;
   isSettled: boolean;
+  /** One entry per step, exactly as a multi-step session reports them. */
+  requests: Array<{ nonce: string; requestId: `0x${string}`; randomness?: `0x${string}`; fulfilled: boolean }>;
   /** Winnings stay out of the displayed balance until `revealOutcome`. */
   revealed: boolean;
 };
@@ -96,6 +104,9 @@ export function createDemoHost(): DemoHost {
     wallet: { status: 'ready', address: '0x000000000000000000000000000000000000dEmo' },
     token: DEMO_TOKEN,
     balances: { smartVaultBalance: balance.toString() },
+    // Run mode reserves the whole ladder up front, so the game derives its
+    // maximum bet from this the same way it would against a real vault.
+    casino: { maxAllowedReservedProfit: (5000n * 10n ** 18n).toString() },
     sessions: {
       items: sessions.map(s => ({
         sessionId: s.sessionId,
@@ -106,7 +117,11 @@ export function createDemoHost(): DemoHost {
         payout: s.payout.toString(),
         isSettled: s.isSettled,
         lastEventTimestamp: Date.now(),
-        raw: { gameState: s.gameState, randomness: s.randomness },
+        raw: {
+          gameState: encodeRunState(s.state),
+          randomness: s.requests.find(r => r.fulfilled)?.randomness,
+          randomnessRequests: s.requests,
+        },
       })),
     },
     ui: { locale: 'en', theme: 'dark' },
@@ -117,73 +132,125 @@ export function createDemoHost(): DemoHost {
     for (const fn of listeners) fn(next);
   };
 
+  /**
+   * Resolve the step now in flight. Mirrors `onRandomness`: draw the arc, see
+   * whether the committed anchor was inside it, then either end the run or
+   * hand the decision back to the player.
+   */
+  const resolveStep = (session: DemoSession) => {
+    const randomness = randomWord();
+    const step = session.state.step + 1;
+    const length = hazardAt(step);
+    const { arcStart, law } = drawFromRandomness(randomness);
+
+    session.state = { ...session.state, arcStart, arcLength: length, law, randomness };
+    const request = session.requests[session.requests.length - 1];
+    request.randomness = randomness;
+    request.fulfilled = true;
+
+    if (isStruck(session.state.position, arcStart, length)) {
+      session.state = { ...session.state, struck: true };
+      session.phase = SESSION_PHASE.SETTLED;
+      session.isSettled = true;
+      session.payout = 0n;
+      push();
+      return;
+    }
+
+    session.state = { ...session.state, step };
+
+    if (step === MAX_STEPS) {
+      // The top of the ladder banks itself — there is no decision left.
+      session.state = { ...session.state, cashedOut: true };
+      session.phase = SESSION_PHASE.SETTLED;
+      session.isSettled = true;
+      session.payout = payoutFor(session.wager, MAX_STEPS);
+      push();
+      return;
+    }
+
+    session.phase = SESSION_PHASE.WAITING_PLAYER_ACTION;
+    push();
+  };
+
+  /** Requests a word for the step in flight, then resolves it after a beat. */
+  const requestRandomness = (session: DemoSession) => {
+    session.requests.push({
+      nonce: String(session.requests.length + 1),
+      requestId: randomWord(),
+      fulfilled: false,
+    });
+    session.phase = SESSION_PHASE.WAITING_RANDOMNESS;
+    push();
+    setTimeout(() => resolveStep(session), DEMO_VRF_DELAY_MS);
+  };
+
   const hostApi = {
     async openSession({ wager, gameData }: { wager: string; gameData: `0x${string}` }) {
       const amount = BigInt(wager);
       if (amount > balance) throw new Error('Insufficient demo balance');
 
-      // gameData is the abi-encoded uint8 prediction the contract would read.
-      const prediction = Number(BigInt(gameData)) as Reality;
+      // gameData is the abi-encoded uint8 anchor the contract would read.
+      const position = Number(BigInt(gameData)) as Position;
       balance -= amount;
 
       const session: DemoSession = {
         sessionId: String(nextId),
         sessionKey: `demo-${nextId}`,
-        prediction,
         wager: amount,
-        phase: 1, // WAITING_RANDOMNESS
+        phase: SESSION_PHASE.WAITING_RANDOMNESS,
         payout: 0n,
+        state: {
+          step: 0,
+          position,
+          arcStart: 0,
+          arcLength: 0,
+          law: 0,
+          struck: false,
+          cashedOut: false,
+          randomness: `0x${'00'.repeat(32)}`,
+        },
         isSettled: false,
+        requests: [],
         revealed: false,
       };
       nextId += 1;
       sessions.push(session);
-      push();
-
-      setTimeout(() => {
-        const bucket = randomBucket();
-        const outcome = bucketToOutcome(bucket);
-        const won = outcome === prediction;
-        const payout = won ? payoutFor(amount, prediction) : 0n;
-
-        const randomness = (`0x${bucket.toString(16).padStart(2, '0')}${'00'.repeat(31)}`) as `0x${string}`;
-        session.phase = 3; // SETTLED
-        session.isSettled = true;
-        session.payout = payout;
-        session.randomness = randomness;
-        session.gameState = encodeAbiParameters(
-          [
-            {
-              type: 'tuple',
-              components: [
-                { name: 'prediction', type: 'uint8' },
-                { name: 'outcome', type: 'uint8' },
-                { name: 'bucket', type: 'uint8' },
-                { name: 'resolved', type: 'bool' },
-                { name: 'won', type: 'bool' },
-                { name: 'randomness', type: 'bytes32' },
-              ],
-            },
-          ],
-          [{ prediction, outcome, bucket, resolved: true, won, randomness }],
-        );
-        // Deliberately NOT credited here. The real host withholds winnings
-        // from its balance display between `openSession` and the game's
-        // `revealOutcome` call, so the balance can't spoil the outcome while
-        // the world is still breaking. Mirroring that here keeps demo mode
-        // honest: if the game forgot to call `revealOutcome`, the bug shows
-        // up in demo exactly as it would in production.
-        push();
-      }, DEMO_SETTLE_DELAY_MS);
+      requestRandomness(session);
 
       return { sessionKey: session.sessionKey, transactionHash: '0x' as `0x${string}` };
     },
-    async submitAction() {
-      throw new Error('Fracture has no mid-session actions');
+
+    async submitAction({ sessionId, actionData }: { sessionId: string; actionData: `0x${string}` }) {
+      const session = sessions.find(s => s.sessionId === sessionId);
+      if (!session) throw new Error('Unknown session');
+      if (session.phase !== SESSION_PHASE.WAITING_PLAYER_ACTION) {
+        throw new Error('The run is not waiting on you');
+      }
+
+      // actionData is abi.encode(uint8 action, uint8 position) — two words.
+      const body = actionData.slice(2);
+      const action = Number(BigInt(`0x${body.slice(0, 64)}`));
+      const position = Number(BigInt(`0x${body.slice(64, 128)}`)) as Position;
+
+      if (action === ACTION_CONTINUE) {
+        session.state = { ...session.state, position };
+        requestRandomness(session);
+      } else {
+        session.state = { ...session.state, cashedOut: true };
+        session.phase = SESSION_PHASE.SETTLED;
+        session.isSettled = true;
+        session.payout = payoutFor(session.wager, session.state.step);
+        push();
+      }
+
+      return { transactionHash: '0x' as `0x${string}` };
     },
+
     async cancelStuckRandomness() {
       throw new Error('Not reachable in demo mode');
     },
+
     async revealOutcome({ sessionId }: { sessionId: string }) {
       // Release the withheld winnings, the same way the real host does once
       // the game says its result presentation has finished.
@@ -193,6 +260,7 @@ export function createDemoHost(): DemoHost {
       balance += session.payout;
       push();
     },
+
     async reportContentSize() {
       /* no-op */
     },
@@ -210,4 +278,4 @@ export function createDemoHost(): DemoHost {
 
 // Re-exported so App.tsx can decode demo sessions with the same helper it uses
 // for real ones.
-export { decodeGameState, encodeGameData };
+export { decodeRunState, encodeGameData };
