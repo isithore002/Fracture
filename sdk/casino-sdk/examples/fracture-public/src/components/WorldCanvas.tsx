@@ -39,6 +39,13 @@ type Props = {
    * broken three times" looks like — this component just publishes the numbers.
    */
   damage: Record<Reality, number>;
+  /**
+   * The law the pointer is currently hovering in the controls panel, or null.
+   * Purely cosmetic — a `data-preview` attribute the stylesheet reads for a
+   * faint law-colored glow, so the world visibly answers before a bet is
+   * ever placed. Never influences layout, drag state, or gameplay.
+   */
+  previewLaw?: Reality | null;
 };
 
 const KEY: Record<Reality, string> = {
@@ -182,7 +189,15 @@ function leanStyle(outcome: Reality, intensity: number): { transform: string; fi
  * labeled cards already expose the identical action to keyboard/assistive
  * tech users.
  */
-export function WorldCanvas({ phase, outcome, selected, interactive, onLock, damage }: Props) {
+export function WorldCanvas({
+  phase,
+  outcome,
+  selected,
+  interactive,
+  onLock,
+  damage,
+  previewLaw = null,
+}: Props) {
   const breaking = phase === 'breaking' || phase === 'settled';
   const breakKey = breaking && outcome !== null ? KEY[outcome] : undefined;
 
@@ -384,6 +399,7 @@ export function WorldCanvas({ phase, outcome, selected, interactive, onLock, dam
       className="world"
       data-phase={phase}
       data-break={breakKey}
+      data-preview={previewLaw !== null ? KEY[previewLaw] : undefined}
       style={
         {
           '--dmg-gravity': damage[0],

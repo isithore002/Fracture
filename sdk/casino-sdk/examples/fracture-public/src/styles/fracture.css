@@ -22,6 +22,35 @@
   --roof: #b85c7a;
   --tree: #2f7d5c;
 
+  /*
+   * One deliberate hue per law, so the five predictions read as five
+   * different things before a player ever reads a label — not five
+   * identical rectangles distinguished only by text. Chosen to stay
+   * distinct from each other AND from --accent/--win/--lose, so nothing
+   * here doubles as a "this is a win" or "this is selected" signal.
+   *   Gravity — warm, heavy, grounded (weight, falling)
+   *   Time    — cool, ghostly cyan (temporal trails, rewind)
+   *   Scale   — magenta (distortion, perspective bending)
+   *   Orbit   — indigo-blue (circular motion), kept apart from --accent
+   *   Void    — near-white/silver: the one law that reads as absence of
+   *             color rather than another color, on purpose.
+   */
+  --law-gravity: #f0a94e;
+  --law-gravity-2: #c9782c;
+  --law-gravity-rgb: 240, 169, 78;
+  --law-time: #6fd4e6;
+  --law-time-2: #2f8fae;
+  --law-time-rgb: 111, 212, 230;
+  --law-scale: #e0679a;
+  --law-scale-2: #a83d6e;
+  --law-scale-rgb: 224, 103, 154;
+  --law-orbit: #8b93f5;
+  --law-orbit-2: #4f57c9;
+  --law-orbit-rgb: 139, 147, 245;
+  --law-void: #f5f3ff;
+  --law-void-2: #b6aede;
+  --law-void-rgb: 245, 243, 255;
+
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-break: cubic-bezier(0.34, 1.56, 0.64, 1);
 
@@ -192,7 +221,23 @@ body {
      size containment is safe here. */
   container-type: size;
   container-name: world;
+  box-shadow: inset 0 0 0 0 transparent;
+  transition: box-shadow 220ms var(--ease-out);
 }
+
+/*
+ * The world answers before you commit: hovering a law card (not dragging —
+ * that already gets the Core's own lean/hum feedback) puts a faint glow of
+ * that law's own color around the frame. Deliberately just a box-shadow on
+ * the frame itself, never touching `.world-stage`'s transform — that chain
+ * is already composed from ambient sway + persistent damage, and a hover
+ * preview has no business fighting either of those for the same property.
+ */
+.world[data-preview='gravity'] .world-frame { box-shadow: inset 0 0 0 1px var(--law-gravity), inset 0 0 46px 6px color-mix(in srgb, var(--law-gravity) 30%, transparent); }
+.world[data-preview='time']    .world-frame { box-shadow: inset 0 0 0 1px var(--law-time),    inset 0 0 46px 6px color-mix(in srgb, var(--law-time) 30%, transparent); }
+.world[data-preview='scale']   .world-frame { box-shadow: inset 0 0 0 1px var(--law-scale),   inset 0 0 46px 6px color-mix(in srgb, var(--law-scale) 30%, transparent); }
+.world[data-preview='orbit']   .world-frame { box-shadow: inset 0 0 0 1px var(--law-orbit),   inset 0 0 46px 6px color-mix(in srgb, var(--law-orbit) 30%, transparent); }
+.world[data-preview='void']    .world-frame { box-shadow: inset 0 0 0 1px var(--law-void),    inset 0 0 46px 6px color-mix(in srgb, var(--law-void) 22%, transparent); }
 
 /* The single element every outcome transforms. Off-centre origin so ORBIT
    swings the world rather than spinning it neatly in place. */
@@ -552,6 +597,15 @@ body {
   pointer-events: none; /* only the Core itself is grabbable */
 }
 
+/* Each anchor glows with its own law's color instead of one shared purple —
+   `--intensity` itself still comes from WorldCanvas.tsx's pointermove
+   handler, untouched; only the color it's multiplied against changes here. */
+.anchor-gravity { --law-rgb: var(--law-gravity-rgb); --law-color: var(--law-gravity); }
+.anchor-time    { --law-rgb: var(--law-time-rgb);    --law-color: var(--law-time); }
+.anchor-scale   { --law-rgb: var(--law-scale-rgb);   --law-color: var(--law-scale); }
+.anchor-orbit   { --law-rgb: var(--law-orbit-rgb);   --law-color: var(--law-orbit); }
+.anchor-void    { --law-rgb: var(--law-void-rgb);    --law-color: var(--law-void); }
+
 .anchor {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -567,11 +621,11 @@ body {
   --intensity: 0;
   background: radial-gradient(
     circle,
-    rgba(185, 140, 255, calc(0.05 + var(--intensity) * 0.35)) 0%,
+    rgba(var(--law-rgb), calc(0.05 + var(--intensity) * 0.35)) 0%,
     transparent 72%
   );
   box-shadow: 0 0 calc(4px + var(--intensity) * 22px) calc(1px + var(--intensity) * 6px)
-    rgba(185, 140, 255, calc(var(--intensity) * 0.55));
+    rgba(var(--law-rgb), calc(var(--intensity) * 0.55));
   transition: background 90ms linear, box-shadow 90ms linear;
 }
 
@@ -579,7 +633,7 @@ body {
   font-size: clamp(13px, 2.1cqw, 26px);
   line-height: 1;
   color: rgba(242, 238, 252, calc(0.45 + var(--intensity) * 0.55));
-  filter: drop-shadow(0 0 calc(var(--intensity) * 6px) var(--accent));
+  filter: drop-shadow(0 0 calc(var(--intensity) * 6px) var(--law-color));
   transform: scale(calc(1 + var(--intensity) * 0.22));
 }
 
@@ -591,7 +645,7 @@ body {
 }
 
 .anchor-selected .anchor-glyph {
-  color: var(--accent-2);
+  color: var(--law-color);
 }
 
 /* Brief confirm flash on the anchor a drag just locked — the world-canvas
@@ -601,9 +655,9 @@ body {
 }
 
 @keyframes anchor-lock-pulse {
-  0%   { box-shadow: 0 0 6px 2px rgba(185, 140, 255, 0.4); }
-  35%  { box-shadow: 0 0 34px 10px rgba(94, 230, 208, 0.65); }
-  100% { box-shadow: 0 0 6px 2px rgba(185, 140, 255, 0.4); }
+  0%   { box-shadow: 0 0 6px 2px rgba(var(--law-rgb), 0.4); }
+  35%  { box-shadow: 0 0 34px 10px rgba(var(--law-rgb), 0.75); }
+  100% { box-shadow: 0 0 6px 2px rgba(var(--law-rgb), 0.4); }
 }
 
 /* 44px hit target (the guideline minimum for a finger) even though the
@@ -1105,6 +1159,15 @@ body {
   gap: 6px;
 }
 
+/* Each card carries its law's own color as --law-color, set once per
+   data-law below, so every rule after this reads var(--law-color) instead
+   of repeating a five-way switch. */
+.pick[data-law='gravity'] { --law-color: var(--law-gravity); --law-color-2: var(--law-gravity-2); }
+.pick[data-law='time']    { --law-color: var(--law-time);    --law-color-2: var(--law-time-2); }
+.pick[data-law='scale']   { --law-color: var(--law-scale);   --law-color-2: var(--law-scale-2); }
+.pick[data-law='orbit']   { --law-color: var(--law-orbit);   --law-color-2: var(--law-orbit-2); }
+.pick[data-law='void']    { --law-color: var(--law-void);    --law-color-2: var(--law-void-2); }
+
 .pick {
   display: flex;
   flex-direction: column;
@@ -1125,13 +1188,13 @@ body {
 
 .pick:hover:not(:disabled) {
   transform: translateY(-2px);
-  border-color: rgba(185, 140, 255, 0.5);
+  border-color: color-mix(in srgb, var(--law-color) 55%, transparent);
 }
 
 .pick[aria-pressed='true'] {
-  border-color: var(--accent);
-  background: rgba(185, 140, 255, 0.14);
-  box-shadow: 0 0 0 1px var(--accent) inset, 0 4px 16px -4px rgba(185, 140, 255, 0.45);
+  border-color: var(--law-color);
+  background: color-mix(in srgb, var(--law-color) 14%, transparent);
+  box-shadow: 0 0 0 1px var(--law-color) inset, 0 4px 16px -4px color-mix(in srgb, var(--law-color) 55%, transparent);
   /* The border alone read as "selected" without being obvious at a glance —
      a small lift/scale on top of it makes the active card pop out of the
      row instead of just being outlined. */
@@ -1151,9 +1214,9 @@ body {
 }
 
 @keyframes lock-flash {
-  0%   { box-shadow: 0 0 0 1px var(--accent) inset, 0 0 0 0 rgba(185, 140, 255, 0.55); }
-  35%  { box-shadow: 0 0 0 1px var(--accent) inset, 0 0 22px 4px rgba(185, 140, 255, 0.55); transform: translateY(-2px) scale(1.03); }
-  100% { box-shadow: 0 0 0 1px var(--accent) inset, 0 0 0 0 rgba(185, 140, 255, 0); transform: none; }
+  0%   { box-shadow: 0 0 0 1px var(--law-color) inset, 0 0 0 0 color-mix(in srgb, var(--law-color) 55%, transparent); }
+  35%  { box-shadow: 0 0 0 1px var(--law-color) inset, 0 0 22px 4px color-mix(in srgb, var(--law-color) 55%, transparent); transform: translateY(-2px) scale(1.03); }
+  100% { box-shadow: 0 0 0 1px var(--law-color) inset, 0 0 0 0 transparent; transform: none; }
 }
 
 .pick:disabled {
@@ -1164,6 +1227,7 @@ body {
 .pick-glyph {
   font-size: 19px;
   line-height: 1;
+  color: var(--law-color);
 }
 
 .pick-name {
@@ -1175,7 +1239,7 @@ body {
 .pick-mult {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--accent-2);
+  color: var(--law-color);
 }
 
 .pick-chance {
@@ -1184,6 +1248,12 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.pick-note[data-law='gravity'] { --law-color: var(--law-gravity); }
+.pick-note[data-law='time']    { --law-color: var(--law-time); }
+.pick-note[data-law='scale']   { --law-color: var(--law-scale); }
+.pick-note[data-law='orbit']   { --law-color: var(--law-orbit); }
+.pick-note[data-law='void']    { --law-color: var(--law-void); }
+
 .pick-note {
   margin: 10px 0 0;
   min-height: 18px;
@@ -1191,7 +1261,7 @@ body {
   font-weight: 500;
   color: var(--ink);
   text-align: center;
-  text-shadow: 0 0 14px rgba(185, 140, 255, 0.55);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--law-color) 55%, transparent);
   /* Re-keyed by `prediction` in App.tsx so this restarts on every selection
      change instead of only playing once on mount — the tagline should read
      as part of whichever card is currently active. */
@@ -1199,8 +1269,8 @@ body {
 }
 
 @keyframes pick-note-in {
-  from { opacity: 0; transform: translateY(2px); text-shadow: 0 0 0 rgba(185, 140, 255, 0); }
-  to   { opacity: 1; transform: none; text-shadow: 0 0 14px rgba(185, 140, 255, 0.55); }
+  from { opacity: 0; transform: translateY(2px); text-shadow: 0 0 0 transparent; }
+  to   { opacity: 1; transform: none; text-shadow: 0 0 14px color-mix(in srgb, var(--law-color) 55%, transparent); }
 }
 
 .wager-row {
@@ -1277,13 +1347,22 @@ body {
   color: var(--ink);
 }
 
+/* The FRACTURE action is "charged" with whatever law is currently selected
+   — the button itself is the clearest signal of what's about to break,
+   instead of one fixed color regardless of the choice underneath it. */
+.cta[data-law='gravity'] { --law-color: var(--law-gravity); --law-color-2: var(--law-gravity-2); }
+.cta[data-law='time']    { --law-color: var(--law-time);    --law-color-2: var(--law-time-2); }
+.cta[data-law='scale']   { --law-color: var(--law-scale);   --law-color-2: var(--law-scale-2); }
+.cta[data-law='orbit']   { --law-color: var(--law-orbit);   --law-color-2: var(--law-orbit-2); }
+.cta[data-law='void']    { --law-color: var(--law-void);    --law-color-2: var(--law-void-2); }
+
 .cta {
   width: 100%;
   margin-top: 12px;
   padding: 15px;
   border: 0;
   border-radius: 14px;
-  background: linear-gradient(100deg, var(--accent) 0%, #7d5bff 100%);
+  background: linear-gradient(100deg, var(--law-color, var(--accent)) 0%, var(--law-color-2, #7d5bff) 100%);
   color: #100a1f;
   font: inherit;
   font-family: 'Poppins', system-ui, sans-serif;
@@ -1292,7 +1371,7 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out);
+  transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out), background 200ms var(--ease-out);
 }
 
 .cta:hover:not(:disabled) {
@@ -1553,10 +1632,75 @@ body {
   .pick-glyph { font-size: 17px; }
 }
 
-/* --------------------------------------------------------- damage meter -- */
+/* ----------------------------------------------------------- YOUR FRACTURE -
+   The session-identity panel: not a stats sheet, a record of what the player
+   did to this specific world. Every number here is derived straight from the
+   `damage` state App.tsx already tracks — no new state, no history log, no
+   per-round list. Five numbers in, one small panel out. */
+
+.damage-row[data-law='gravity'] { --law-color: var(--law-gravity); --law-color-2: var(--law-gravity-2); }
+.damage-row[data-law='time']    { --law-color: var(--law-time);    --law-color-2: var(--law-time-2); }
+.damage-row[data-law='scale']   { --law-color: var(--law-scale);   --law-color-2: var(--law-scale-2); }
+.damage-row[data-law='orbit']   { --law-color: var(--law-orbit);   --law-color-2: var(--law-orbit-2); }
+.damage-row[data-law='void']    { --law-color: var(--law-void);    --law-color-2: var(--law-void-2); }
 
 .damage-panel {
   padding: 12px 14px;
+}
+
+.damage-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 2px;
+}
+
+.damage-title-name {
+  font-family: 'Poppins', system-ui, sans-serif;
+  font-weight: 700;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.damage-title-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.damage-stability {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 10px;
+}
+
+.damage-stability-label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.damage-stability-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+/* Stable reads calm teal; the more of the session's total damage budget is
+   spent, the more it shifts toward the void's cold white — reality running
+   out of room to keep absorbing hits, not a "danger" color. */
+.damage-stability-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-2), var(--law-void));
+  transition: width 260ms var(--ease-out);
 }
 
 .damage-list {
@@ -1565,34 +1709,35 @@ body {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
 .damage-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .damage-name {
-  font-size: 11px;
+  flex: 0 0 44px;
+  font-size: 10px;
   color: var(--muted);
 }
 
 .damage-bars {
   display: flex;
   gap: 3px;
+  flex: 1;
 }
 
 .damage-pip {
-  width: 16px;
+  flex: 1;
   height: 5px;
   border-radius: 2px;
   background: rgba(160, 145, 220, 0.16);
 }
 
 .damage-pip.on {
-  background: linear-gradient(90deg, var(--accent) 0%, #7d5bff 100%);
-  box-shadow: 0 0 6px rgba(185, 140, 255, 0.5);
+  background: linear-gradient(90deg, var(--law-color) 0%, var(--law-color-2) 100%);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--law-color) 50%, transparent);
 }

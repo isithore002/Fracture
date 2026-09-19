@@ -141,6 +141,12 @@ export function App() {
   const { hostApi, snapshot, demo } = useCasinoHost();
 
   const [prediction, setPrediction] = useState<Reality>(0);
+  /**
+   * Purely a hover preview — which card the pointer is over right now, so the
+   * world can answer before a bet is ever placed. Never read by any gameplay
+   * or settlement path; WorldCanvas only uses it to tint a glow.
+   */
+  const [previewLaw, setPreviewLaw] = useState<Reality | null>(null);
   const [wagerInput, setWagerInput] = useState('1.00');
   const [round, setRound] = useState<Round | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -391,6 +397,8 @@ export function App() {
   };
 
   const totalDamage = REALITIES.reduce<number>((sum, id) => sum + damage[id], 0);
+  /** 100% = nothing has broken yet; 0% = every law is fully maxed out. */
+  const stabilityPct = Math.round(100 - (totalDamage / (REALITIES.length * MAX_DAMAGE)) * 100);
 
   const canBet =
     !!hostApi &&
@@ -435,6 +443,7 @@ export function App() {
             interactive={worldPhase === 'idle'}
             onLock={pick}
             damage={damage}
+            previewLaw={worldPhase === 'idle' ? previewLaw : null}
           />
 
           {round && (round.status === 'opening' || round.status === 'waiting') && (
@@ -487,6 +496,7 @@ export function App() {
                 <button
                   key={id}
                   type="button"
+                  data-law={REALITY[id].key}
                   // Brief one-shot flash the instant this prediction is locked
                   // in, distinct from the persistent aria-pressed selection
                   // styling.
@@ -494,6 +504,10 @@ export function App() {
                   aria-pressed={prediction === id}
                   disabled={busy}
                   onClick={() => pick(id)}
+                  onMouseEnter={() => setPreviewLaw(id)}
+                  onMouseLeave={() => setPreviewLaw(current => (current === id ? null : current))}
+                  onFocus={() => setPreviewLaw(id)}
+                  onBlur={() => setPreviewLaw(current => (current === id ? null : current))}
                 >
                   <span className="pick-glyph" aria-hidden="true">
                     {GLYPH[id]}
@@ -504,20 +518,37 @@ export function App() {
                 </button>
               ))}
             </div>
-            <p key={prediction} className="pick-note">
+            <p key={prediction} className="pick-note" data-law={REALITY[prediction].key}>
               {REALITY[prediction].tagline}
             </p>
           </section>
 
-          {/* What this session has done to the world. Only appears once
-              something has actually broken, so a first-time player isn't
-              shown an empty meter they have no context for. */}
+          {/* What this session has done to the world — YOUR FRACTURE, not a
+              stats sheet. Every number is derived straight from `damage`;
+              there is no separate history log or event list behind it.
+              Only appears once something has actually broken, so a
+              first-time player isn't shown an empty meter with no context. */}
           {totalDamage > 0 && (
             <section className="panel damage-panel">
-              <p className="section-label">Damage to your reality</p>
+              <div className="damage-title">
+                <span className="damage-title-name">Your Fracture</span>
+                <span className="damage-title-count">
+                  {totalDamage} {totalDamage === 1 ? 'reality event' : 'reality events'}
+                </span>
+              </div>
+              <div className="damage-stability">
+                <span className="damage-stability-label">Stability</span>
+                <span
+                  className="damage-stability-track"
+                  role="img"
+                  aria-label={`Reality stability ${stabilityPct}%`}
+                >
+                  <span className="damage-stability-fill" style={{ width: `${stabilityPct}%` }} />
+                </span>
+              </div>
               <ul className="damage-list">
                 {REALITIES.map(id => (
-                  <li key={id} className="damage-row">
+                  <li key={id} className="damage-row" data-law={REALITY[id].key}>
                     <span className="damage-name">{REALITY[id].name}</span>
                     <span
                       className="damage-bars"
@@ -569,12 +600,18 @@ export function App() {
             </div>
 
             {round?.status === 'settled' ? (
-              <button type="button" className="cta" onClick={replay}>
+              <button type="button" className="cta" data-law={REALITY[prediction].key} onClick={replay}>
                 Shift again
               </button>
             ) : (
-              <button type="button" className="cta" disabled={!canBet} onClick={() => void submit()}>
-                {busy ? 'Breaking…' : `Break ${REALITY[prediction].name}`}
+              <button
+                type="button"
+                className="cta"
+                data-law={REALITY[prediction].key}
+                disabled={!canBet}
+                onClick={() => void submit()}
+              >
+                {busy ? 'Fracturing…' : `Fracture ${REALITY[prediction].name}`}
               </button>
             )}
 
