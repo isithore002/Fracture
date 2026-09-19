@@ -115,6 +115,13 @@ type Run = {
   sessionKey?: string;
   /** The host's real session id. Needed for `submitAction` and `revealOutcome`. */
   sessionId?: string;
+  /**
+   * Hash of the transaction that opened this run. The most reliable handle we
+   * get back from `openSession` — unlike `sessionKey` it cannot be swapped out
+   * from under us, so it is what pins the run to its row before the session id
+   * is known.
+   */
+  openTxHash?: `0x${string}`;
   /** Session keys that already existed when we opened, so we can spot ours. */
   knownKeys: string[];
   wager: bigint;
@@ -143,17 +150,41 @@ type Run = {
  * take the newest row that was not there before we opened.
  */
 function findRow(items: HostSnapshotSessions, run: Run): HostSnapshotSessions[number] | undefined {
+  // Identity, strongest first. A run lives across many pushes and many steps,
+  // and several of its own sessions can be live at once, so the row has to be
+  // pinned rather than re-guessed every time.
+  if (run.sessionId) {
+    const byId = items.find(item => item.sessionId === run.sessionId);
+    if (byId) return byId;
+  }
+  // The hash of the transaction that opened this run. Exact, and immune to the
+  // host swapping its optimistic `pending:<uuid>` key for the real session id.
+  if (run.openTxHash) {
+    const byTx = items.find(item => item.raw.openTransactionHash === run.openTxHash);
+    if (byTx) return byTx;
+  }
   if (run.sessionKey) {
     const direct = items.find(item => item.sessionKey === run.sessionKey);
     if (direct) return direct;
   }
+
+  // Last resort, and deliberately narrow. The old single-shot game could take
+  // "newest row we had not seen before" because a round settled within
+  // seconds, so at most one session was ever in flight. Run mode breaks that:
+  // sessions stay open for as long as the player keeps deciding, abandoned
+  // ones stay open indefinitely, and a host that backfills history stamps
+  // those old rows with a fresh `lastEventTimestamp` — at which point "newest"
+  // is an ABANDONED run, not this one. Picking it stalls the new run forever
+  // with the wager already taken.
+  //
+  // So only consider rows that could actually be ours: unsettled, and not
+  // already present when we opened.
   const known = new Set(run.knownKeys);
-  const fresh = items.filter(item => !known.has(item.sessionKey));
-  if (fresh.length === 0) return undefined;
-  // `items` is newest-first from the host; fall back to the last event stamp.
-  return fresh.reduce((newest, item) =>
-    item.lastEventTimestamp > newest.lastEventTimestamp ? item : newest,
+  const candidates = items.filter(
+    item => !known.has(item.sessionKey) && !item.isSettled && !isTerminalPhase(item.phase),
   );
+  if (candidates.length !== 1) return undefined; // ambiguous — wait for identity
+  return candidates[0];
 }
 
 export function App() {
@@ -290,6 +321,15 @@ export function App() {
 
     const row = findRow(snapshot.sessions.items, run);
     if (!row) return;
+
+    // Pin the session id the moment the row is identified, not just when a
+    // step is presented: from here on `findRow` matches on it exactly and can
+    // never fall back to guessing between concurrent sessions.
+    if (row.sessionId && row.sessionId !== run.sessionId) {
+      const runId = run.id;
+      const pinned = row.sessionId;
+      setRun(current => (current && current.id === runId ? { ...current, sessionId: pinned } : current));
+    }
 
     const settled = row.isSettled || isTerminalPhase(row.phase);
     const state = row.raw.gameState ? decodeRunState(row.raw.gameState) : null;
@@ -493,10 +533,15 @@ export function App() {
     playLock();
 
     try {
-      const { sessionKey } = await hostApi.openSession({
+      const { sessionKey, transactionHash } = await hostApi.openSession({
         wager: wager.toString(),
         gameData: encodeGameData(anchor),
       });
+      // Pin the run to its opening transaction straight away, so the row can
+      // be identified even if the host reshuffles its session keys.
+      setRun(current =>
+        current && current.id === id ? { ...current, openTxHash: transactionHash } : current,
+      );
       // The bet is already placed — this only delays our own visual exit from
       // the "committed" beat so the lock flash isn't cut off by a session open
       // that resolves in a handful of ms (demo mode has no network round-trip).
