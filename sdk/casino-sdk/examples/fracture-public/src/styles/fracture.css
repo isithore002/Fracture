@@ -51,8 +51,30 @@
   --law-void-2: #b6aede;
   --law-void-rgb: 245, 243, 255;
 
+  /* ---- BROKEN CASINO: the machine's materials ---------------------------
+     A fascia panel, not a web page. Three ideas do all the work: a dark
+     brushed panel, a thin brass edge catching the light from above, and
+     indicator lamps that are genuinely off until something switches them
+     on. Everything below is built from these; there is no glass, no blur
+     and no gradient-for-its-own-sake anywhere in the control layer. */
+  --font-display: 'Big Shoulders Display', 'Haettenschweiler', 'Arial Narrow', sans-serif;
+  --font-readout: 'Share Tech Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-ui: 'Rubik', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --panel-face: #14121c;
+  --panel-face-2: #0e0d15;
+  --panel-groove: #07060c;
+  --brass: #b08d57;
+  --brass-dim: #6b5637;
+  --lamp-off: #2a2735;
+  /* The readout's phosphor. Warm, not the usual crypto cyan. */
+  --readout: #ffcf7a;
+  --readout-dim: rgba(255, 207, 122, 0.35);
+
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-break: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* A short, mechanical curve — things on this machine snap, they don't glide. */
+  --ease-mech: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   color-scheme: dark;
 }
@@ -150,51 +172,63 @@ body {
   gap: 12px;
 }
 
+/* The machine's nameplate: condensed signage lettering, brass-lit, with the
+   tight tracking of something stamped rather than typed. The old gradient
+   fill is gone — lettering on a fascia is lit, not coloured. */
 .wordmark {
   margin: 0;
-  font-family: 'Poppins', system-ui, sans-serif;
-  font-size: 20px;
+  font-family: var(--font-display);
+  font-size: 34px;
   font-weight: 800;
-  font-style: italic;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
+  line-height: 0.9;
   text-transform: uppercase;
-  background: linear-gradient(100deg, var(--ink) 10%, var(--accent) 60%, var(--accent-2) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--ink);
+  text-shadow:
+    0 1px 0 rgba(176, 141, 87, 0.45),
+    0 0 18px rgba(176, 141, 87, 0.22);
 }
 
 .tagline {
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  color: var(--brass);
   text-transform: uppercase;
 }
 
+/* Balance is a lit readout behind a window in the fascia, not body text. */
 .balance {
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  color: var(--muted);
+  font-family: var(--font-readout);
+  font-size: 11px;
+  color: var(--readout-dim);
   white-space: nowrap;
+  text-align: right;
 }
 
 .balance strong {
   display: block;
-  color: var(--ink);
-  font-size: 16px;
-  font-weight: 600;
+  font-family: var(--font-readout);
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--readout);
+  text-shadow: 0 0 9px rgba(255, 207, 122, 0.45);
 }
 
 .demo-pill {
   display: inline-block;
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font-size: 10px;
-  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border: 1px solid var(--brass-dim);
+  border-radius: 2px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--brass);
 }
 
 /* ----------------------------------------------------------------- world -- */
@@ -223,6 +257,34 @@ body {
   container-name: world;
   box-shadow: inset 0 0 0 0 transparent;
   transition: box-shadow 220ms var(--ease-out);
+}
+
+/*
+ * The world is behind the machine's glass: fine scanlines plus a vignette,
+ * both extremely low-contrast. This is the one place a texture is allowed,
+ * and it earns its keep by making the 3D render feel like it is being
+ * *displayed by something* rather than composited onto a web page.
+ * Pointer-events off so it can never intercept a drag.
+ */
+.world-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.055) 0px,
+      rgba(0, 0, 0, 0.055) 1px,
+      transparent 1px,
+      transparent 4px
+    ),
+    radial-gradient(120% 100% at 50% 45%, transparent 58%, rgba(0, 0, 0, 0.4) 100%);
+  /* `multiply` at any real strength turns bright areas (the moon especially)
+     into visible venetian-blind banding rather than a screen texture. Kept
+     faint and widely spaced, and left in normal blending so it darkens the
+     dark sky without carving stripes out of the highlights. */
 }
 
 /* The three.js diorama fills the frame, behind the anchors/Core overlay. */
@@ -1030,6 +1092,9 @@ body {
     rgba(255, 255, 255, 0.05) 0 1px,
     transparent 1px 4px
   );
+  /* Overrides the machine's static scanline grain, which is multiplied —
+     these stripes are additive light and would be erased by that mode. */
+  mix-blend-mode: normal;
   animation: rewind-sweep 0.42s linear infinite;
 }
 
@@ -1153,19 +1218,30 @@ body {
 
 /* --------------------------------------------------------------- controls -- */
 
+/* A bolted fascia section, not a floating card: square-ish corners, a brass
+   hairline where the light hits the top edge, and a dark groove below it. */
 .panel {
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--panel);
+  position: relative;
+  border: 0;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #16141f 0%, #100e18 100%);
   padding: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(176, 141, 87, 0.22),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 1px 0 rgba(176, 141, 87, 0.06),
+    0 6px 16px -8px rgba(0, 0, 0, 0.9);
 }
 
+/* Engraved panel labels. */
 .section-label {
   margin: 0 0 10px;
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--brass);
 }
 
 .section-hint {
@@ -1189,41 +1265,87 @@ body {
 .pick[data-law='orbit']   { --law-color: var(--law-orbit);   --law-color-2: var(--law-orbit-2); }
 .pick[data-law='void']    { --law-color: var(--law-void);    --law-color-2: var(--law-void-2); }
 
+/*
+ * Five physical law selectors, not five cards. Each is a key sitting in a
+ * milled recess in the fascia: a brass hairline catches light along the top,
+ * the key face is a flat dark panel, and an indicator lamp above the symbol
+ * is genuinely unlit until that law is armed. Pressing one moves it *down*
+ * into the panel rather than lifting it off the page, which is the whole
+ * difference between a button and a web card.
+ */
 .pick {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  padding: 10px 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  gap: 2px;
+  padding: 14px 4px 9px;
+  border: 0;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--panel-face) 0%, var(--panel-face-2) 100%);
   color: var(--ink);
   font: inherit;
   cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(176, 141, 87, 0.28),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.55),
+    0 2px 0 var(--panel-groove),
+    0 3px 5px rgba(0, 0, 0, 0.5);
   transition:
-    border-color 160ms var(--ease-out),
-    background 160ms var(--ease-out),
-    transform 160ms var(--ease-out);
+    transform 90ms var(--ease-mech),
+    box-shadow 90ms var(--ease-mech),
+    background 160ms var(--ease-out);
+}
+
+/* The indicator lamp. Off is a genuinely dead grey bulb — if every state
+   glows, "armed" stops meaning anything. */
+.pick::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--lamp-off);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.8);
+  transition: background 120ms var(--ease-mech), box-shadow 120ms var(--ease-mech);
 }
 
 .pick:hover:not(:disabled) {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--law-color) 55%, transparent);
+  background: linear-gradient(180deg, #191622 0%, var(--panel-face-2) 100%);
+}
+
+.pick:hover:not(:disabled)::before {
+  background: color-mix(in srgb, var(--law-color) 40%, var(--lamp-off));
+}
+
+/* Pressed: the key travels into the fascia and the drop shadow collapses. */
+.pick:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgba(176, 141, 87, 0.18),
+    inset 0 2px 6px rgba(0, 0, 0, 0.7),
+    0 0 0 var(--panel-groove);
 }
 
 .pick[aria-pressed='true'] {
-  border-color: var(--law-color);
-  background: color-mix(in srgb, var(--law-color) 14%, transparent);
-  box-shadow: 0 0 0 1px var(--law-color) inset, 0 4px 16px -4px color-mix(in srgb, var(--law-color) 55%, transparent);
-  /* The border alone read as "selected" without being obvious at a glance —
-     a small lift/scale on top of it makes the active card pop out of the
-     row instead of just being outlined. */
-  transform: translateY(-3px) scale(1.035);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--law-color) 12%, var(--panel-face)) 0%, var(--panel-face-2) 100%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--law-color) 45%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--law-color) 35%, transparent),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.5),
+    0 2px 0 var(--panel-groove),
+    0 0 14px -2px color-mix(in srgb, var(--law-color) 45%, transparent);
 }
 
-.pick[aria-pressed='true']:hover:not(:disabled) {
-  transform: translateY(-4px) scale(1.035);
+/* Armed: the lamp is lit and is the only thing on the panel that glows. */
+.pick[aria-pressed='true']::before {
+  background: var(--law-color);
+  box-shadow:
+    0 0 6px 1px var(--law-color),
+    inset 0 0 2px rgba(255, 255, 255, 0.9);
 }
 
 /* One-shot confirm flash the instant a prediction is locked in — brief and
@@ -1246,27 +1368,46 @@ body {
 }
 
 .pick-glyph {
-  font-size: 19px;
+  font-size: 20px;
   line-height: 1;
   color: var(--law-color);
+  /* Unlit symbols are etched into the panel; only the armed one is lit. */
+  opacity: 0.62;
+  transition: opacity 140ms var(--ease-mech), filter 140ms var(--ease-mech);
 }
 
+.pick[aria-pressed='true'] .pick-glyph {
+  opacity: 1;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--law-color) 70%, transparent));
+}
+
+/* Engraved fascia lettering: condensed, wide-tracked, all caps. */
 .pick-name {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: rgba(242, 238, 252, 0.82);
 }
 
+.pick[aria-pressed='true'] .pick-name {
+  color: var(--ink);
+}
+
+/* Every number on this machine is an instrument readout. */
 .pick-mult {
+  font-family: var(--font-readout);
   font-size: 11px;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   color: var(--law-color);
 }
 
 .pick-chance {
+  font-family: var(--font-readout);
   font-size: 9px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+  color: rgba(154, 146, 184, 0.75);
 }
 
 .pick-note[data-law='gravity'] { --law-color: var(--law-gravity); }
@@ -1300,26 +1441,35 @@ body {
   align-items: stretch;
 }
 
+/* A lit readout window recessed into the fascia: the number sits behind
+   glass, so the field is sunken and dark rather than a raised web input. */
 .wager-field {
   position: relative;
   flex: 1;
+  border-radius: 3px;
+  background: #06050a;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.9),
+    inset 0 0 0 1px rgba(176, 141, 87, 0.18);
 }
 
 .wager-field input {
   width: 100%;
-  padding: 12px 52px 12px 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.3);
-  color: var(--ink);
-  font: inherit;
-  font-size: 16px; /* >=16px so iOS doesn't zoom on focus */
-  font-variant-numeric: tabular-nums;
+  padding: 11px 52px 11px 12px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--readout);
+  font-family: var(--font-readout);
+  font-size: 19px; /* >=16px so iOS doesn't zoom on focus */
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 8px rgba(255, 207, 122, 0.4);
 }
 
 .wager-field input:focus {
   outline: none;
-  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--brass);
+  border-radius: 3px;
 }
 
 .wager-field .unit {
@@ -1327,45 +1477,93 @@ body {
   top: 50%;
   right: 12px;
   transform: translateY(-50%);
-  font-size: 12px;
-  color: var(--muted);
+  font-family: var(--font-readout);
+  font-size: 11px;
+  color: var(--readout-dim);
   pointer-events: none;
 }
 
-.chip {
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
+/* Stepper keys: same key language as the law selectors, just smaller. */
+.step {
+  width: 40px;
+  border: 0;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--panel-face) 0%, var(--panel-face-2) 100%);
+  color: var(--brass);
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
   cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(176, 141, 87, 0.25),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.5),
+    0 2px 0 var(--panel-groove);
+  transition: transform 80ms var(--ease-mech), box-shadow 80ms var(--ease-mech), color 120ms;
+}
+
+.step:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.step:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.7),
+    0 0 0 var(--panel-groove);
+}
+
+.step:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.chip {
+  padding: 0 11px;
+  border: 0;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--panel-face) 0%, var(--panel-face-2) 100%);
+  color: rgba(154, 146, 184, 0.9);
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(176, 141, 87, 0.22),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.5),
+    0 2px 0 var(--panel-groove);
+  transition: transform 80ms var(--ease-mech), box-shadow 80ms var(--ease-mech), color 120ms;
 }
 
 .chip:hover:not(:disabled) {
   color: var(--ink);
-  border-color: var(--accent);
+}
+
+.chip:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7), 0 0 0 var(--panel-groove);
 }
 
 .chip:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
-/* Betting the whole balance in one tap deserves more visual weight than "1"
-   or "2x" — it read as an afterthought next to the plain chip styling. */
+/* Betting the whole balance in one press is the one chip that gets a brass
+   face — it is a different kind of decision from "1" or "2x". */
 .chip-max {
-  border-color: rgba(185, 140, 255, 0.45);
-  background: rgba(185, 140, 255, 0.12);
-  color: var(--accent-2);
-  font-weight: 600;
+  color: var(--brass);
+  box-shadow:
+    inset 0 1px 0 rgba(176, 141, 87, 0.45),
+    inset 0 0 0 1px rgba(176, 141, 87, 0.3),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.5),
+    0 2px 0 var(--panel-groove);
 }
 
 .chip-max:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: rgba(185, 140, 255, 0.2);
-  color: var(--ink);
+  color: #ffd79a;
 }
 
 /* The FRACTURE action is "charged" with whatever law is currently selected
@@ -1377,45 +1575,83 @@ body {
 .cta[data-law='orbit']   { --law-color: var(--law-orbit);   --law-color-2: var(--law-orbit-2); }
 .cta[data-law='void']    { --law-color: var(--law-void);    --law-color-2: var(--law-void-2); }
 
+/*
+ * The one control on the machine that commits. Built as a lit key with real
+ * travel: a brass rim, a 3px shoulder underneath it, and an illuminated face
+ * carrying the armed law's colour. Pressing it drops the key onto the fascia
+ * and kills the shoulder, so the click is felt as much as seen.
+ */
 .cta {
+  position: relative;
   width: 100%;
-  margin-top: 12px;
-  padding: 15px;
+  margin-top: 14px;
+  padding: 16px 15px 15px;
   border: 0;
-  border-radius: 14px;
-  background: linear-gradient(100deg, var(--law-color, var(--accent)) 0%, var(--law-color-2, #7d5bff) 100%);
-  color: #100a1f;
-  font: inherit;
-  font-family: 'Poppins', system-ui, sans-serif;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  border-radius: 4px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--law-color, var(--accent)) 92%, white) 0%,
+      var(--law-color, var(--accent)) 45%,
+      var(--law-color-2, #7d5bff) 100%
+    );
+  color: #0b0810;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
+  line-height: 1;
   cursor: pointer;
-  transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out), background 200ms var(--ease-out);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 0 0 1px color-mix(in srgb, var(--brass) 50%, transparent),
+    0 3px 0 color-mix(in srgb, var(--law-color-2, #000) 55%, black),
+    0 5px 14px -3px color-mix(in srgb, var(--law-color, var(--accent)) 45%, transparent);
+  transition:
+    transform 80ms var(--ease-mech),
+    box-shadow 80ms var(--ease-mech),
+    background 220ms var(--ease-out),
+    filter 120ms var(--ease-out);
 }
 
 .cta:hover:not(:disabled) {
-  transform: translateY(-1px);
-  filter: brightness(1.08);
+  filter: brightness(1.06);
 }
 
+/* Real travel: 3px down, shoulder gone. */
+.cta:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 2px 7px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px color-mix(in srgb, var(--brass) 35%, transparent),
+    0 0 0 color-mix(in srgb, var(--law-color-2, #000) 55%, black);
+}
+
+/* Unpowered: the lamp is out and the key is dead metal, not a faded button. */
 .cta:disabled {
-  opacity: 0.45;
+  background: linear-gradient(180deg, #23202c 0%, #17151f 100%);
+  color: rgba(242, 238, 252, 0.3);
   cursor: not-allowed;
   transform: none;
+  box-shadow:
+    inset 0 1px 0 rgba(176, 141, 87, 0.14),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.5),
+    0 2px 0 var(--panel-groove);
 }
 
 .payout-preview {
   margin: 10px 0 0;
-  font-size: 12px;
-  color: var(--muted);
+  font-family: var(--font-readout);
+  font-size: 11px;
+  color: rgba(154, 146, 184, 0.85);
   text-align: center;
-  font-variant-numeric: tabular-nums;
 }
 
 .payout-preview strong {
-  color: var(--accent-2);
+  font-weight: 400;
+  color: var(--readout);
 }
 
 /* ----------------------------------------------------------------- result -- */
@@ -1452,14 +1688,16 @@ body {
   to   { opacity: 0; transform: scale(1.15); }
 }
 
+/* The marquee line. Big condensed signage lettering — this is the one moment
+   the machine announces something, so it gets the largest type in the game. */
 .result-headline {
   position: relative;
   margin: 0;
-  font-family: 'Poppins', system-ui, sans-serif;
-  font-size: 20px;
+  font-family: var(--font-display);
+  font-size: 40px;
   font-weight: 800;
-  font-style: italic;
   letter-spacing: 0.06em;
+  line-height: 0.95;
   text-transform: uppercase;
 }
 
@@ -1468,8 +1706,9 @@ body {
 
 .amount {
   position: relative;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-readout);
+  font-weight: 400;
+  letter-spacing: 0.02em;
 }
 
 .amount-win {
@@ -1517,17 +1756,21 @@ body {
 }
 
 .roll-label {
-  font-size: 9px;
-  letter-spacing: 0.16em;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: rgba(154, 146, 184, 0.75);
+  color: var(--brass);
 }
 
+/* The VRF word itself, shown as the machine's own readout. */
 .roll-value {
-  font-size: 15px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
+  font-family: var(--font-readout);
+  font-size: 19px;
+  letter-spacing: 0.06em;
+  color: var(--readout);
+  text-shadow: 0 0 8px rgba(255, 207, 122, 0.4);
 }
 
 .roll-track {
@@ -1678,17 +1921,18 @@ body {
 }
 
 .damage-title-name {
-  font-family: 'Poppins', system-ui, sans-serif;
-  font-weight: 700;
-  font-style: italic;
-  letter-spacing: 0.02em;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--ink);
 }
 
 .damage-title-count {
+  font-family: var(--font-readout);
   font-size: 11px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
+  color: var(--readout-dim);
 }
 
 .damage-stability {

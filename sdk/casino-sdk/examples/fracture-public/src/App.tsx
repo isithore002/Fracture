@@ -28,6 +28,7 @@ import {
   playOutcome,
   playSelect,
   playTensionPulse,
+  playTick,
   playWin,
   startAmbient,
   unlockAudio,
@@ -369,6 +370,24 @@ export function App() {
     }
   }, [hostApi, wager, prediction, snapshot]);
 
+  /**
+   * One detent on the wager dial. Steps through a fixed ladder rather than
+   * adding a fixed amount, so the control stays useful whether the player is
+   * betting 0.10 or 500 — and always lands on a round number.
+   */
+  const stepWager = useCallback((direction: 1 | -1) => {
+    const ladder = [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000];
+    setWagerInput(current => {
+      const value = Number(current || '0');
+      const next =
+        direction > 0
+          ? (ladder.find(step => step > value + 1e-9) ?? ladder[ladder.length - 1])
+          : ([...ladder].reverse().find(step => step < value - 1e-9) ?? ladder[0]);
+      return next.toFixed(2);
+    });
+    playTick();
+  }, []);
+
   const replay = useCallback(() => {
     setRound(null);
     setError(null);
@@ -490,7 +509,7 @@ export function App() {
         <div className="controls">
           <section className="panel">
             <p className="section-label">Which law breaks next?</p>
-            <p className="section-hint">Drag the core above, or tap a card:</p>
+            <p className="section-hint">Drag the core above, or arm a law below:</p>
             <div className="picks">
               {REALITIES.map(id => (
                 <button
@@ -578,16 +597,23 @@ export function App() {
                 />
                 <span className="unit">{symbol}</span>
               </div>
-              <button type="button" className="chip" disabled={busy} onClick={() => setWagerInput('1.00')}>
-                1
+              <button
+                type="button"
+                className="step"
+                aria-label="Decrease wager"
+                disabled={busy}
+                onClick={() => stepWager(-1)}
+              >
+                &minus;
               </button>
               <button
                 type="button"
-                className="chip"
+                className="step"
+                aria-label="Increase wager"
                 disabled={busy}
-                onClick={() => setWagerInput(v => String(Math.max(0, Number(v || '0') * 2)))}
+                onClick={() => stepWager(1)}
               >
-                2&times;
+                +
               </button>
               <button
                 type="button"

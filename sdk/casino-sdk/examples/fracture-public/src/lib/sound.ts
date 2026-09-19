@@ -187,14 +187,32 @@ export function playTensionPulse() {
   tone({ type: 'sine', from: jitter(96), to: jitter(58), duration: 0.16, gain: 0.045 });
 }
 
-/** Immediate confirm the instant a bet is placed, before the network round-trip. */
+/**
+ * The machine's mechanical vocabulary. These three are deliberately dry,
+ * short and un-musical: a casino machine's controls make contact noises, not
+ * notes. Everything melodic in this game is reserved for the five laws.
+ */
+
+/** Lock: a heavy contactor closing. The commit, felt through the panel. */
 export function playLock() {
-  tone({ type: 'square', from: jitter(240), duration: 0.05, gain: 0.06 });
-  tone({ type: 'sine', from: jitter(480), duration: 0.09, gain: 0.05, delay: 0.05 });
+  // The clack of the key bottoming out...
+  noise(0.045, 0.3, 0, 2600);
+  // ...then the weight of the mechanism behind it.
+  tone({ type: 'sine', from: 150, to: 58, duration: 0.14, gain: 0.3 });
+  tone({ type: 'square', from: 92, to: 62, duration: 0.09, gain: 0.07, delay: 0.012 });
 }
 
+/** Select: a single crisp key press. Short enough to press repeatedly. */
 export function playSelect() {
-  tone({ type: 'triangle', from: jitter(520), to: jitter(780), duration: 0.09, gain: 0.08 });
+  noise(0.022, 0.16, 0, 5200);
+  tone({ type: 'square', from: jitter(1150), duration: 0.016, gain: 0.05 });
+  tone({ type: 'sine', from: jitter(330), to: jitter(250), duration: 0.05, gain: 0.07, delay: 0.008 });
+}
+
+/** Wager detent: the lightest sound on the machine, one notch of a dial. */
+export function playTick() {
+  noise(0.012, 0.1, 0, 6500);
+  tone({ type: 'square', from: jitter(1650), duration: 0.01, gain: 0.035 });
 }
 
 /**
@@ -243,15 +261,29 @@ export function playOutcome(outcome: Reality) {
   }
 }
 
+/**
+ * Win and loss are deliberately *small*. The spectacle already happened —
+ * a law of physics just broke and the world is still settling. A four-note
+ * jackpot fanfare on top of that is the exact "generic casino jingle" the
+ * brief rules out, and it would also step on the outcome's own sound.
+ *
+ * So: the win is the machine acknowledging a payout (a payout relay, a warm
+ * confirming interval), and the loss is the machine simply powering back
+ * down. Neither competes with the fracture that preceded it.
+ */
 export function playWin() {
-  tone({ type: 'triangle', from: 523, duration: 0.16, gain: 0.16, delay: 0 });
-  tone({ type: 'triangle', from: 659, duration: 0.16, gain: 0.16, delay: 0.1 });
-  tone({ type: 'triangle', from: 784, duration: 0.3, gain: 0.18, delay: 0.2 });
-  tone({ type: 'sine', from: 1046, duration: 0.5, gain: 0.1, delay: 0.3 });
+  // The payout relay closing.
+  noise(0.03, 0.14, 0, 3200);
+  // A bare fifth — confirmation, not celebration.
+  tone({ type: 'triangle', from: 392, duration: 0.5, gain: 0.1, delay: 0.03 });
+  tone({ type: 'triangle', from: 588, duration: 0.42, gain: 0.07, delay: 0.06 });
+  tone({ type: 'sine', from: 784, duration: 0.6, gain: 0.035, delay: 0.09 });
 }
 
 export function playLose() {
-  tone({ type: 'triangle', from: 300, to: 190, duration: 0.5, gain: 0.12 });
+  // The machine settling back to idle: a soft mechanical release, then air.
+  noise(0.05, 0.08, 0, 1100);
+  tone({ type: 'sine', from: 196, to: 132, duration: 0.42, gain: 0.08 });
 }
 
 // --- Core drag feedback -----------------------------------------------------

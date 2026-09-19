@@ -39,8 +39,12 @@ async function main() {
   // --- 1. standalone load ---------------------------------------------------
   console.log('1. Standalone load (no host, mobile viewport)');
   const t0 = Date.now();
-  await page.goto(URL, { waitUntil: 'load' });
-  await page.waitForSelector('.world', { timeout: 10000 });
+  // 'domcontentloaded' + an explicit mount wait, not 'load': 'load' blocks on
+  // the Google Fonts stylesheet, so it measures third-party network weather
+  // rather than how fast the game becomes visible. This timing is the number
+  // the "loads near-instantly" requirement actually cares about.
+  await page.goto(URL, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.world', { timeout: 15000 });
   ok(true, `world rendered in ${Date.now() - t0}ms`);
 
   await page.waitForSelector('.demo-pill', { timeout: 5000 });
@@ -136,7 +140,7 @@ async function main() {
   const harnessUrl = `http://127.0.0.1:${harness.address().port}/`;
 
   const embedPage = await context.newPage();
-  await embedPage.goto(harnessUrl, { waitUntil: 'load' });
+  await embedPage.goto(harnessUrl, { waitUntil: 'domcontentloaded' });
   let embedded = false;
   let embedError = '';
   try {
