@@ -459,8 +459,6 @@ export function App() {
             phase={worldPhase}
             outcome={shownOutcome}
             selected={prediction}
-            interactive={worldPhase === 'idle'}
-            onLock={pick}
             damage={damage}
             previewLaw={worldPhase === 'idle' ? previewLaw : null}
           />
@@ -509,7 +507,7 @@ export function App() {
         <div className="controls">
           <section className="panel">
             <p className="section-label">Which law breaks next?</p>
-            <p className="section-hint">Drag the core above, or arm a law below:</p>
+            <p className="section-hint">Arm one, then fracture it:</p>
             <div className="picks">
               {REALITIES.map(id => (
                 <button

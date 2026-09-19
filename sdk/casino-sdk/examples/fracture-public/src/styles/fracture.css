@@ -287,7 +287,7 @@ body {
      dark sky without carving stripes out of the highlights. */
 }
 
-/* The three.js diorama fills the frame, behind the anchors/Core overlay. */
+/* The three.js diorama fills the frame. */
 .world-gl {
   position: absolute;
   inset: 0;
@@ -658,166 +658,6 @@ body {
   background: #000;
   opacity: 0;
   box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
-}
-
-/* ============================================= drag-to-lock core ========== */
-/*
-  Five static anchors plus one draggable Core, sitting above the scene, only
-  present while the world is idle. Dragging the Core near an anchor previews
-  that reality (a capped "lean" applied to .world-stage, driven imperatively
-  from WorldCanvas.tsx — not a CSS animation, so nothing here fights it) and
-  releasing inside its capture range locks that prediction.
-
-  The tap-card grid below the world is the accessible equivalent of every
-  action here, so this whole layer is `aria-hidden` in the markup and none of
-  it needs to be reachable by keyboard.
-*/
-
-.anchors {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none; /* only the Core itself is grabbable */
-}
-
-/* Each anchor glows with its own law's color instead of one shared purple —
-   `--intensity` itself still comes from WorldCanvas.tsx's pointermove
-   handler, untouched; only the color it's multiplied against changes here. */
-.anchor-gravity { --law-rgb: var(--law-gravity-rgb); --law-color: var(--law-gravity); }
-.anchor-time    { --law-rgb: var(--law-time-rgb);    --law-color: var(--law-time); }
-.anchor-scale   { --law-rgb: var(--law-scale-rgb);   --law-color: var(--law-scale); }
-.anchor-orbit   { --law-rgb: var(--law-orbit-rgb);   --law-color: var(--law-orbit); }
-.anchor-void    { --law-rgb: var(--law-void-rgb);    --law-color: var(--law-void); }
-
-.anchor {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  /* Scales with the frame like the scene does, but never below a legible
-     size on a phone or past a silly size on a very wide desktop. */
-  width: clamp(34px, 5.6cqw, 62px);
-  padding: 6px 0;
-  border-radius: 50%;
-  --intensity: 0;
-  background: radial-gradient(
-    circle,
-    rgba(var(--law-rgb), calc(0.05 + var(--intensity) * 0.35)) 0%,
-    transparent 72%
-  );
-  box-shadow: 0 0 calc(4px + var(--intensity) * 22px) calc(1px + var(--intensity) * 6px)
-    rgba(var(--law-rgb), calc(var(--intensity) * 0.55));
-  transition: background 90ms linear, box-shadow 90ms linear;
-}
-
-.anchor-glyph {
-  font-size: clamp(13px, 2.1cqw, 26px);
-  line-height: 1;
-  color: rgba(242, 238, 252, calc(0.45 + var(--intensity) * 0.55));
-  filter: drop-shadow(0 0 calc(var(--intensity) * 6px) var(--law-color));
-  transform: scale(calc(1 + var(--intensity) * 0.22));
-}
-
-.anchor-name {
-  font-size: clamp(7px, 1.15cqw, 14px);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(154, 146, 184, calc(0.5 + var(--intensity) * 0.5));
-}
-
-.anchor-selected .anchor-glyph {
-  color: var(--law-color);
-}
-
-/* Brief confirm flash on the anchor a drag just locked — the world-canvas
-   equivalent of the tap-card's .locking flash. */
-.anchor-locked-flash {
-  animation: anchor-lock-pulse 480ms var(--ease-break);
-}
-
-@keyframes anchor-lock-pulse {
-  0%   { box-shadow: 0 0 6px 2px rgba(var(--law-rgb), 0.4); }
-  35%  { box-shadow: 0 0 34px 10px rgba(var(--law-rgb), 0.75); }
-  100% { box-shadow: 0 0 6px 2px rgba(var(--law-rgb), 0.4); }
-}
-
-/* 44px hit target (the guideline minimum for a finger) even though the
-   visible orb inside stays a small, elegant 22px — position/pointer-events
-   live here; the gradient/glow live on the inner dot below, so growing the
-   grab zone never grows what the player actually sees. */
-.fracture-core {
-  position: absolute;
-  width: 44px;
-  height: 44px;
-  margin: -22px 0 0 -22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: grab;
-  pointer-events: auto;
-  touch-action: none; /* dragging the core must never scroll the page */
-  z-index: 3;
-}
-
-.fracture-core:active {
-  cursor: grabbing;
-}
-
-.fracture-core-dot {
-  display: block;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 32%, #fff 0%, var(--accent) 55%, #5a3fa8 100%);
-  box-shadow: 0 0 12px 3px rgba(185, 140, 255, 0.55);
-  /* WorldCanvas.tsx writes a new rotate+scale target on every pointermove
-     (the drag direction/speed lean) and clears it to neutral on drag
-     start/end — this transition is what turns those discrete targets into a
-     springy, physical-feeling lean instead of a snap, and gives the release
-     its "short spring return" for free. */
-  transition: transform 150ms var(--ease-break);
-}
-
-.fracture-core-inert {
-  pointer-events: none;
-  cursor: default;
-}
-
-.fracture-core-inert .fracture-core-dot {
-  opacity: 0.55;
-}
-
-/* Only present while the Core is settling into place without direct pointer
-   control (a missed release snapping back, or the small correction onto an
-   anchor's exact centre after a lock) — never during an active drag, where
-   the Core must track the pointer with zero lag. */
-.core-snap {
-  transition: left 240ms var(--ease-break), top 240ms var(--ease-break);
-}
-
-.drag-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 6%;
-  transform: translateX(-50%);
-  margin: 0;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(7, 6, 13, 0.65);
-  color: var(--muted);
-  font-size: clamp(9px, 1.35cqw, 16px);
-  letter-spacing: 0.02em;
-  text-align: center;
-  white-space: nowrap;
-  animation: hint-fade 3.6s ease-in 1;
-  animation-fill-mode: forwards;
-}
-
-@keyframes hint-fade {
-  0%, 70% { opacity: 1; }
-  100%    { opacity: 0; }
 }
 
 /* ----------------------------------------------------- ambient keyframes -- */
@@ -1887,7 +1727,7 @@ body {
   }
 }
 
-/* The anchor/hint sizes that used to live here are now `clamp(...)` with a
+/* The sizes that used to live here are now `clamp(...)` with a
    container unit in the middle, so they cover this range and everything
    above it from a single rule. Only the cards, which sit outside the world
    container, still need a narrow-screen override. */
