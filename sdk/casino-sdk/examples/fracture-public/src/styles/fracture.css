@@ -2239,3 +2239,114 @@ body {
   text-align: center;
   letter-spacing: 0.02em;
 }
+
+/* ---------------------------------------------------------------------------
+   READING THE STEP
+   A positional mechanic has to be readable as one. Five near-identical keys
+   and a half-second flash left the player unable to tell which positions the
+   arc destroyed, or which one was theirs â€” so a survival and a strike looked
+   the same and the outcome read as arbitrary.
+   --------------------------------------------------------------------------- */
+
+/* What the arc took, and where the player was standing. */
+.landing-line {
+  /* Sits in the same stack as the ladder, just above it — in normal flow it
+     landed underneath the absolutely-positioned ladder and was unreadable. */
+  position: absolute;
+  left: 50%;
+  bottom: 86px;
+  transform: translateX(-50%);
+  z-index: 4;
+  width: max-content;
+  max-width: min(52ch, 88%);
+  padding: 8px 14px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--law-color, var(--brass)) 45%, transparent);
+  background: rgba(10, 9, 16, 0.92);
+  font-family: var(--font-readout);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--muted);
+  animation: landing-in 220ms var(--ease-out) both;
+}
+
+.landing-line[data-law='gravity'] { --law-color: var(--law-gravity); }
+.landing-line[data-law='time']    { --law-color: var(--law-time); }
+.landing-line[data-law='scale']   { --law-color: var(--law-scale); }
+.landing-line[data-law='orbit']   { --law-color: var(--law-orbit); }
+.landing-line[data-law='void']    { --law-color: var(--law-void); }
+
+.landing-line strong {
+  color: var(--law-color, var(--readout));
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.landing-safe { color: var(--win); }
+
+.landing-hit {
+  color: var(--lose);
+  font-weight: 700;
+}
+
+@keyframes landing-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@media (max-width: 560px) {
+  .landing-line { bottom: 74px; font-size: 11px; padding: 6px 10px; }
+}
+
+/* "You" â€” the anchor's position, findable without hunting for a lamp. */
+.pick-you {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  padding: 1px 4px 2px;
+  border-bottom-left-radius: 3px;
+  background: var(--readout);
+  color: #16120a;
+  font-family: var(--font-readout);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+/* A destroyed position, held for as long as the step is on screen rather
+   than flashed away in half a second. */
+.pick-gone {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--lose) 85%, white);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--lose) 70%, transparent);
+  pointer-events: none;
+}
+
+/* Struck keys stay visibly gone while the step is being read, instead of
+   settling back to something indistinguishable from an untouched key. */
+.pick-anchor.struck {
+  animation: anchor-struck 520ms var(--ease-out) both;
+  border: 1px solid color-mix(in srgb, var(--lose) 60%, transparent);
+}
+
+.pick-anchor.struck .pick-glyph,
+.pick-anchor.struck .pick-name {
+  opacity: 0.25;
+}
+
+/* Spared keys stay plainly legible â€” surviving is not a downgrade. */
+.pick-anchor.spared {
+  opacity: 1;
+}
+
+.pick-anchor.spared:not([aria-pressed='true']) {
+  opacity: 0.55;
+}

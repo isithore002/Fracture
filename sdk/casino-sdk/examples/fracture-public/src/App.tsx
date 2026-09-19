@@ -813,6 +813,29 @@ export function App() {
             </p>
           )}
 
+          {/* What just happened, in words.
+              Five identical keys and a 500ms flash are not enough to read a
+              positional mechanic from: the arc lands, the world shakes, and
+              the run either continues or does not — with nothing on screen
+              connecting the two. Stated plainly, the player can see that the
+              step turned on where they were standing, which is the whole
+              mechanic. This is a description of a resolved step, never a
+              prediction, and it names the real arc the contract drew. */}
+          {landing && (
+            <p className="landing-line" data-law={REALITY[landing.law].key} data-hit={landing.struck ? 'yes' : 'no'}>
+              <strong>{REALITY[landing.law].name}</strong> took{' '}
+              {arcPositions(landing.arcStart, landing.arcLength)
+                .map(p => ANCHOR[p].name)
+                .join(' + ')}
+              {' — '}
+              {landing.struck ? (
+                <span className="landing-hit">you were at {ANCHOR[landing.anchor].name}</span>
+              ) : (
+                <span className="landing-safe">you held {ANCHOR[landing.anchor].name}</span>
+              )}
+            </p>
+          )}
+
           {stalled && (
             <p className="status status-stalled">
               This step hasn&rsquo;t come back yet. Your stake and everything banked so far are
@@ -886,6 +909,15 @@ export function App() {
                       {ANCHOR_GLYPH[id]}
                     </span>
                     <span className="pick-name">{ANCHOR[id].name}</span>
+                    {/* Where the anchor is, spelled out. A lit lamp alone is
+                        too small to find at a glance, and during a landing it
+                        competes with four other keys changing colour. */}
+                    {anchor === id && <span className="pick-you">You</span>}
+                    {landing && hit && (
+                      <span className="pick-gone" aria-hidden="true">
+                        ✕
+                      </span>
+                    )}
                   </button>
                 );
               })}
