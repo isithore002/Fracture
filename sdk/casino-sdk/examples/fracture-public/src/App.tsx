@@ -72,6 +72,12 @@ const FRACTURE_MS = 1500;
 const LOCK_MS = 380;
 /** Cadence of the soft "still waiting" pulse, matched to the CSS tension loop. */
 const TENSION_PULSE_MS = 1400;
+/**
+ * How long a single step may take before the game admits something is wrong.
+ * A VRF round-trip is seconds; this is far beyond any healthy one, so it only
+ * fires when a step really has stopped coming.
+ */
+const STALL_NOTICE_MS = 20000;
 
 /**
  * Damage saturates here. A cap is what keeps persistence from turning into
@@ -317,7 +323,15 @@ export function App() {
   // the reveal is staged: telegraph, a beat of silence, then the arc lands.
   useEffect(() => {
     if (!run || !snapshot) return;
-    if (run.phase !== 'awaiting' && run.phase !== 'committing') return;
+    // 'choosing' is in here as a recovery path, not a normal one. If an action
+    // reached the chain but its reply did not reach us — a dropped websocket, a
+    // host that threw after broadcasting — the run would otherwise sit on a
+    // decision that no longer exists while the session moved on without it.
+    // Observing while choosing costs nothing (a step already presented is
+    // filtered out below) and un-strands that case.
+    if (run.phase !== 'awaiting' && run.phase !== 'committing' && run.phase !== 'choosing') {
+      return;
+    }
 
     const row = findRow(snapshot.sessions.items, run);
     if (!row) return;
@@ -489,12 +503,72 @@ export function App() {
     return () => window.clearInterval(id);
   }, [phase]);
 
+  /**
+   * A step that never lands.
+   *
+   * Every step is a real randomness request, so a step can genuinely get
+   * stuck: a VRF node that stops answering, an indexer that falls behind and
+   * never catches up, a dropped connection. When that happens the world sits
+   * on "Drawing the fracture" looking exactly like a step that is merely
+   * slow — and the player has money on it with no idea whether to wait.
+   *
+   * This does not fix the underlying stall or touch the session; it just
+   * stops a stuck run pretending to be a working one. Anything that arrives
+   * later still resolves normally, and the notice clears itself.
+   */
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    if (phase !== 'awaiting' && phase !== 'committing') {
+      setStalled(false);
+      return;
+    }
+    setStalled(false);
+    const id = window.setTimeout(() => setStalled(true), STALL_NOTICE_MS);
+    return () => window.clearTimeout(id);
+  }, [phase, run?.presented]);
+
   useEffect(
     () => () => {
       window.clearTimeout(lockTimer.current);
       window.clearTimeout(floorTimer.current);
       window.clearTimeout(holdTimer.current);
       window.clearTimeout(landTimer.current);
+    },
+    [],
+  );
+
+  /**
+   * Submits a mid-run action, retrying while the host is merely behind.
+   *
+   * The decision keys appear as soon as OUR reveal of a resolved step
+   * finishes, which can be sooner than the host's own view of the session
+   * catches up — the local simulator runs a 600ms indexer lag by default, and
+   * a real indexer has its own. Acting in that window fails with a transient
+   * "hasn't synced yet", which is not something a player did wrong and not
+   * something they should have to understand: the answer is to wait a beat and
+   * send it again, which is exactly what this does.
+   *
+   * Only transient failures are retried. A revert, a rejected signature or a
+   * closed session fails immediately, because retrying those would just stack
+   * up identical failures.
+   */
+  const submitWithRetry = useCallback(
+    async (sessionId: string, actionData: `0x${string}`) => {
+      const api = hostApiRef.current;
+      if (!api) throw new Error('No host connection.');
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          return await api.submitAction({ sessionId, actionData });
+        } catch (e) {
+          lastError = e;
+          const message = e instanceof Error ? e.message : String(e);
+          const transient = /sync|not yet|try again|pending|unknown session/i.test(message);
+          if (!transient) throw e;
+          await new Promise(resolve => setTimeout(resolve, 350 + attempt * 350));
+        }
+      }
+      throw lastError;
     },
     [],
   );
@@ -577,10 +651,7 @@ export function App() {
     playLock();
 
     try {
-      await hostApi.submitAction({
-        sessionId: run.sessionId,
-        actionData: encodeAction(ACTION_CONTINUE, anchor),
-      });
+      await submitWithRetry(run.sessionId, encodeAction(ACTION_CONTINUE, anchor));
       const lockElapsed = Date.now() - committedAt;
       window.clearTimeout(lockTimer.current);
       lockTimer.current = window.setTimeout(
@@ -598,7 +669,7 @@ export function App() {
       setRun(current => (current && current.id === runId ? { ...current, phase: 'choosing' } : current));
       setError(e instanceof Error ? e.message : 'The step could not be taken.');
     }
-  }, [hostApi, run, anchor]);
+  }, [hostApi, run, anchor, submitWithRetry]);
 
   /** CASH OUT — bank what the run is worth and end it. */
   const cashOut = useCallback(async () => {
@@ -612,15 +683,12 @@ export function App() {
     playLock();
 
     try {
-      await hostApi.submitAction({
-        sessionId: run.sessionId,
-        actionData: encodeAction(ACTION_CASH_OUT, anchor),
-      });
+      await submitWithRetry(run.sessionId, encodeAction(ACTION_CASH_OUT, anchor));
     } catch (e) {
       setRun(current => (current && current.id === runId ? { ...current, phase: 'choosing' } : current));
       setError(e instanceof Error ? e.message : 'The cash-out could not be placed.');
     }
-  }, [hostApi, run, anchor]);
+  }, [hostApi, run, anchor, submitWithRetry]);
 
   /** Clear the ended run and arm a fresh one at the same stake. */
   const reset = useCallback(() => {
@@ -739,9 +807,16 @@ export function App() {
             </div>
           )}
 
-          {phase === 'awaiting' && (
+          {phase === 'awaiting' && !stalled && (
             <p className="status">
               <span className="dots">Drawing the fracture</span>
+            </p>
+          )}
+
+          {stalled && (
+            <p className="status status-stalled">
+              This step hasn&rsquo;t come back yet. Your stake and everything banked so far are
+              still on the session &mdash; reloading picks the run back up where it left off.
             </p>
           )}
 

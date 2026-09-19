@@ -2221,3 +2221,21 @@ body {
   .key-line { font-size: 17px; }
   .pick[data-anchor] .pick-name { font-size: 9px; }
 }
+
+/* A step that stopped coming. Deliberately calm rather than alarming: the
+   money is safe on the session, and the run resumes on reload. */
+.status-stalled {
+  max-width: 44ch;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 9px 14px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--brass) 38%, transparent);
+  background: rgba(12, 10, 18, 0.9);
+  color: var(--readout);
+  font-family: var(--font-readout);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
