@@ -16,6 +16,24 @@ import ChainSmallLogo from './ChainSmallLogo';
 
 const PANEL_COLLAPSED_KEY = 'casino-sdk-simulator.panel-collapsed';
 
+/**
+ * The contract name the loaded game says it implements, from its manifest's
+ * `gameId`. Used only to pick a sensible default in the contract picker, so
+ * every failure mode — no manifest, cross-origin block, malformed JSON, game
+ * not up yet — degrades to "no opinion" rather than breaking the harness.
+ */
+async function fetchDeclaredGameId(gameUrl: string): Promise<string | undefined> {
+  try {
+    const response = await fetch(`${gameUrl.replace(/\/+$/, '')}/game.manifest.json`);
+    if (!response.ok) return undefined;
+    const manifest: unknown = await response.json();
+    const gameId = (manifest as { gameId?: unknown })?.gameId;
+    return typeof gameId === 'string' && gameId.length > 0 ? gameId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function App() {
   const [config, setConfig] = useState<SimulatorConfig>(() => loadConfig());
   const [detected, setDetected] = useState<LocalDeployedContracts | undefined>(undefined);
@@ -76,11 +94,30 @@ export function App() {
       if (autoFilled) return;
       autoFilled = true;
       const current = configRef.current;
+      // Which contract should be selected?
+      //
+      // A saved address is only still the developer's choice while the node
+      // actually deploys it. Keeping it unconditionally is how a removed
+      // contract stays selected forever: the picker shows no matching option,
+      // but the harness goes on pointing every wager at an address the game
+      // can no longer read, and nothing says why.
+      //
+      // Falling back to `games[0]` is no better — that is alphabetical, so it
+      // hands a Fracture build to CoinflipGame and the bet reverts. Instead,
+      // ask the loaded game which contract it implements: the manifest's
+      // `gameId` is the contract name by convention (the SDK's own Coinflip
+      // example ships `gameId: "CoinflipGame"`). Match on that and the harness
+      // cannot select a contract the game does not speak.
+      const saved = contracts.games.find(game => game.address === current.gameAddress);
+      const declared = await fetchDeclaredGameId(current.gameUrl);
+      const byManifest = declared
+        ? contracts.games.find(game => game.name === declared)
+        : undefined;
+      const chosen = saved ?? byManifest ?? contracts.games[0];
       const merged: SimulatorConfig = {
         ...current,
         // The local node owns the host infrastructure and redeploys it per
-        // boot, so its fresh addresses always replace saved ones; the game
-        // address stays the developer's choice once set.
+        // boot, so its fresh addresses always replace saved ones.
         proxy: contracts.host,
         token: contracts.token,
         liquidityVault: contracts.vault,
@@ -88,10 +125,10 @@ export function App() {
           current.rpcUrl === DEFAULT_CONFIG.rpcUrl && contracts.rpcUrl
             ? contracts.rpcUrl
             : current.rpcUrl,
-        gameAddress: current.gameAddress || (contracts.games[0]?.address ?? ''),
+        gameAddress: chosen?.address ?? '',
         gameName:
-          current.gameName === 'SimulatedGame' && contracts.games[0]
-            ? contracts.games[0].name
+          chosen && (!saved || current.gameName === 'SimulatedGame')
+            ? chosen.name
             : current.gameName,
       };
       setConfig(merged);

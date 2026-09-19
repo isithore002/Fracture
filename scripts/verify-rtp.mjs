@@ -61,10 +61,17 @@ const ok = (cond, label, detail = '') => {
 // ---------------------------------------------------------------------------
 
 function compile() {
+  // The source unit name stays flat so its `./ICasinoGameV2.sol` import still
+  // resolves against the contracts root, but the file itself now lives under
+  // `legacy/` — which the local node's watcher does not scan, so the original
+  // single-shot game is no longer auto-deployed alongside run mode. Two
+  // contracts both offering themselves as "Fracture" in the simulator's game
+  // picker was a live footgun: picking the wrong one silently ate wagers.
   const file = 'FractureGame.sol';
+  const source = resolve(CONTRACTS, 'legacy', file);
   const input = {
     language: 'Solidity',
-    sources: { [file]: { content: readFileSync(resolve(CONTRACTS, file), 'utf8') } },
+    sources: { [file]: { content: readFileSync(source, 'utf8') } },
     settings: {
       optimizer: { enabled: true, runs: 200 },
       viaIR: true,

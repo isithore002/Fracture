@@ -41,7 +41,7 @@ const DEMO_VRF_DELAY_MS = 850;
 
 const MANIFEST = {
   schemaVersion: 1 as const,
-  gameId: 'FractureGame',
+  gameId: 'FractureRunGame',
   apiVersion: 1 as const,
   defaultLocale: 'en',
   locales: {
