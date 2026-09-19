@@ -291,10 +291,32 @@ export function App() {
     const row = findRow(snapshot.sessions.items, run);
     if (!row) return;
 
-    const state = row.raw.gameState ? decodeRunState(row.raw.gameState) : null;
-    if (!state) return;
-
     const settled = row.isSettled || isTerminalPhase(row.phase);
+    const state = row.raw.gameState ? decodeRunState(row.raw.gameState) : null;
+
+    if (!state) {
+      // Mid-flight the host may push a row before its game state has synced,
+      // so an undecodable state is normal right up until the session is
+      // terminal. Once it IS terminal and there is still a blob we cannot
+      // read, the session was settled by a contract that does not speak run
+      // mode — almost always the original single-shot FractureGame, whose
+      // 192-byte FractureState cannot be read as a 256-byte RunState.
+      //
+      // Without this the effect just returns on every push and the game sits
+      // on "Drawing…" forever with nothing in the console. Say what happened
+      // instead: a judge pointed at the wrong address should see a cause, not
+      // a hang.
+      if (settled && row.raw.gameState) {
+        setRun(null);
+        setError(
+          'That session settled, but its result is not in run-mode format — the game is ' +
+            'pointed at a contract that does not implement Fracture Run Mode. Check the ' +
+            'game address.',
+        );
+      }
+      return;
+    }
+
     // How many steps have actually resolved: a strike resolves the step the
     // player did not survive, so it counts one beyond the survived total.
     const resolvedCount = state.struck ? state.step + 1 : state.step;
