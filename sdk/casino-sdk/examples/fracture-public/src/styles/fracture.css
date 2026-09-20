@@ -2489,3 +2489,91 @@ body {
   .howto { grid-template-columns: 1fr; gap: 6px; }
   .howto li { font-size: 10.5px; padding: 7px 9px 7px 24px; }
 }
+
+/* ---------------------------------------------------------------------------
+   CALLING THE LAW
+   A side-call, for the record. It never touches the wager, the odds or the
+   payout, so it is styled as a quieter row than the anchor keys and labelled
+   outright â€” a prediction sitting next to a stake that looked like it paid,
+   but did not, would be a lie told by omission.
+   --------------------------------------------------------------------------- */
+.lawcall {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(176, 141, 87, 0.16);
+}
+
+.lawcall-label {
+  margin: 0 0 7px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.lawcall-label span {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--muted);
+}
+
+/* Smaller than the anchor keys: this decides nothing. */
+.pick-law {
+  padding: 9px 3px 7px;
+}
+
+.pick-law .pick-glyph { font-size: 14px; }
+.pick-law .pick-name { font-size: 8.5px; }
+
+/* The law that actually broke. */
+.pick-law.was {
+  box-shadow:
+    inset 0 0 0 1px var(--law-color),
+    0 0 12px -2px color-mix(in srgb, var(--law-color) 60%, transparent);
+}
+
+/* Called, and it was not this one. */
+.pick-law.missed {
+  opacity: 0.4;
+}
+
+.landing-call {
+  color: var(--muted);
+}
+
+.landing-call b {
+  margin-left: 5px;
+  padding: 1px 5px 2px;
+  border-radius: 3px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+.landing-line .landing-call b:not(:empty) { color: var(--muted); }
+
+.arclog-call {
+  font-family: var(--font-readout);
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.arclog-call.right {
+  color: var(--win);
+  opacity: 1;
+}
+
+.arclog-calls { color: var(--muted); }
+
+.arclog-row {
+  grid-template-columns: 16px auto 1fr auto auto;
+}
