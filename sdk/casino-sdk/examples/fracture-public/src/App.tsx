@@ -838,8 +838,11 @@ export function App() {
                 ) : (
                   <>
                     {REALITY[run.log[run.log.length - 1]?.law ?? 0].name} took the{' '}
-                    {ANCHOR[run.log[run.log.length - 1]?.anchor ?? 0].name} on step {run.log.length}{' '}
-                    —{' '}
+                    {ANCHOR[run.log[run.log.length - 1]?.anchor ?? 0].name} on step{' '}
+                    {/* The step's own number, not the row count. If a host
+                        push is missed the log can be short of rows, and
+                        counting them instead reported the wrong step. */}
+                    {run.log[run.log.length - 1]?.step ?? run.log.length} —{' '}
                     <span className="amount amount-lose">
                       &minus;{fmt(run.wager)} {symbol}
                     </span>

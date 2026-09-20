@@ -35,6 +35,12 @@ type Props = {
  */
 export function ArcReadout({ log }: Props) {
   const survived = log.filter(record => !record.struck).length;
+  // The run's real depth is the last step's own number. It can exceed the row
+  // count: if a host push is missed the client only ever sees the later state,
+  // and the steps in between resolved on chain without a row here. Counting
+  // rows would quietly under-report how far the run actually went.
+  const depth = log.length > 0 ? log[log.length - 1].step : 0;
+  const missing = depth > log.length;
 
   return (
     <div className="arclog">
@@ -45,7 +51,7 @@ export function ArcReadout({ log }: Props) {
           <span className="arclog-pip mine" /> you
         </span>
         <span className="arclog-value">
-          {survived} of {log.length} survived
+          {survived} of {depth} survived
         </span>
       </div>
 
@@ -103,6 +109,13 @@ export function ArcReadout({ log }: Props) {
       <p className="arclog-note">
         Each step drew its own VRF word <em>after</em> the anchor was committed. Every position
         carried the same odds.
+        {missing && (
+          <>
+            {' '}
+            Some steps of this run are not listed above — their results arrived together and
+            only the latest was recorded. They settled on chain exactly as the ones shown did.
+          </>
+        )}
       </p>
     </div>
   );

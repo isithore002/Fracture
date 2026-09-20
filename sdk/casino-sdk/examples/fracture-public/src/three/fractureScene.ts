@@ -862,9 +862,14 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
     singularity.visible = voidActive;
     accretion.visible = voidActive;
     if (voidActive) {
-      const scarScale = staged(v, 0) * 0.09;
-      const hoverScale = hover[4] * 0.12;
-      const breakScale = breaking && outcome === 4 ? easeInCubic(progress) * 1.5 : 0;
+      // Sized against the ring, not the old wide shot this was first tuned
+      // for: the five positions sit at radius 1.62, so a 1.5-radius sphere at
+      // the centre geometrically swallows the entire board and the step stops
+      // being readable at the exact moment it matters. VOID should open a hole
+      // in the middle of the world, not replace the world.
+      const scarScale = staged(v, 0) * 0.05;
+      const hoverScale = hover[4] * 0.08;
+      const breakScale = breaking && outcome === 4 ? easeInCubic(progress) * 0.5 : 0;
       singularity.scale.setScalar(Math.max(0.001, scarScale + hoverScale + breakScale));
       accretion.scale.setScalar(Math.max(0.001, (scarScale + hoverScale + breakScale) * 1.1));
       accretion.rotation.z = elapsed * 0.6;
@@ -955,7 +960,7 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
     if (breaking && outcome !== null) {
       if (outcome === 0) camY += p * 1.1; // follow the rising world
       if (outcome === 2) camZ += p * 1.6; // pull back from the growing house
-      if (outcome === 4) camZ -= p * 1.2; // drawn toward the singularity
+      if (outcome === 4) camZ -= p * 0.5; // drawn toward the singularity
       const shake = (1 - progress) * 0.05 * motion;
       camX += Math.sin(elapsed * 41) * shake;
       camY += Math.cos(elapsed * 37) * shake;
