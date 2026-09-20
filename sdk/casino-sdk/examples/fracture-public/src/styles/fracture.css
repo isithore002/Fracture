@@ -2350,3 +2350,76 @@ body {
 .pick-anchor.spared:not([aria-pressed='true']) {
   opacity: 0.55;
 }
+
+/* ---------------------------------------------------------------------------
+   THE RUN LOG, AS A RECORD
+   Five rows of dots is not a record: at the end of a run a player could not
+   tell what had happened in any of the steps that got them there. Each row now
+   carries the same sentence the live readout uses.
+   --------------------------------------------------------------------------- */
+
+.arclog-row {
+  grid-template-columns: 16px auto 1fr auto;
+  gap: 10px;
+  padding: 4px 8px;
+}
+
+/* What the step did, in words. */
+.arclog-said {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arclog-said .arclog-law {
+  color: var(--law-color, var(--readout));
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.arclog-row[data-law='gravity'] { --law-color: var(--law-gravity); }
+.arclog-row[data-law='time']    { --law-color: var(--law-time); }
+.arclog-row[data-law='scale']   { --law-color: var(--law-scale); }
+.arclog-row[data-law='orbit']   { --law-color: var(--law-orbit); }
+.arclog-row[data-law='void']    { --law-color: var(--law-void); }
+
+.arclog-safe { color: color-mix(in srgb, var(--win) 80%, white); }
+
+.arclog-hit {
+  color: var(--lose);
+  font-weight: 700;
+}
+
+/* A legend, because the dots are only readable if you are told what they mean. */
+.arclog-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-readout);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.arclog-legend .arclog-pip {
+  margin-left: 6px;
+}
+
+.arclog-legend .arclog-pip:first-child {
+  margin-left: 0;
+}
+
+.arclog-head {
+  gap: 10px;
+}
+
+/* Narrow frames drop the sentence rather than truncate it to noise; the pips
+   and the aria-label still carry the step. */
+@media (max-width: 720px) {
+  .arclog-said { display: none; }
+  .arclog-row { grid-template-columns: 16px auto 1fr auto; }
+}

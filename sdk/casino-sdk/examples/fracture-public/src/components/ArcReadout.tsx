@@ -18,6 +18,12 @@ type Props = {
  * The run, step by step: where the anchor stood, which law swept through, which
  * positions it took, and what the multiplier was worth at each rung.
  *
+ * Every row states its own step in words. Pips alone are not a record — a
+ * player looking at five rows of dots at the end of a run cannot tell what
+ * happened in any of them, which makes the whole ladder feel like it resolved
+ * for reasons they never saw. The dots show the geometry; the sentence says
+ * what it meant.
+ *
  * This is transparency, not a retention device. Every row renders the real arc
  * the contract derived from that step's own VRF word. Nothing is massaged to
  * make a loss read as closer than it was — there is no "so close!" framing and
@@ -28,18 +34,25 @@ type Props = {
  * ended, so nothing here can leak a step the player has not yet taken.
  */
 export function ArcReadout({ log }: Props) {
+  const survived = log.filter(record => !record.struck).length;
+
   return (
     <div className="arclog">
       <div className="arclog-head">
         <span className="arclog-label">The run</span>
+        <span className="arclog-legend" aria-hidden="true">
+          <span className="arclog-pip gone" /> destroyed
+          <span className="arclog-pip mine" /> you
+        </span>
         <span className="arclog-value">
-          {log.length} {log.length === 1 ? 'step' : 'steps'}
+          {survived} of {log.length} survived
         </span>
       </div>
 
       <ol className="arclog-list">
         {log.map(record => {
           const hit = arcPositions(record.arcStart, record.arcLength);
+          const took = hit.map(p => ANCHOR[p].name).join(' + ');
           return (
             <li
               key={record.step}
@@ -52,9 +65,8 @@ export function ArcReadout({ log }: Props) {
                 className="arclog-ring"
                 role="img"
                 aria-label={
-                  `${REALITY[record.law].name} took ` +
-                  hit.map(p => ANCHOR[p].name).join(', ') +
-                  `; anchor at ${ANCHOR[record.anchor].name}`
+                  `${REALITY[record.law].name} took ${took}; ` +
+                  `anchor at ${ANCHOR[record.anchor].name}`
                 }
               >
                 {ANCHORS.map(id => (
@@ -69,7 +81,17 @@ export function ArcReadout({ log }: Props) {
                 ))}
               </span>
 
-              <span className="arclog-law">{REALITY[record.law].name}</span>
+              {/* What that step actually did, in the same words the live
+                  readout uses, so the record and the moment match. */}
+              <span className="arclog-said">
+                <span className="arclog-law">{REALITY[record.law].name}</span> took {took} —{' '}
+                {record.struck ? (
+                  <span className="arclog-hit">you were at {ANCHOR[record.anchor].name}</span>
+                ) : (
+                  <span className="arclog-safe">you held {ANCHOR[record.anchor].name}</span>
+                )}
+              </span>
+
               <span className="arclog-mult">
                 {record.struck ? '—' : `${multiplierAt(record.step).toFixed(2)}×`}
               </span>

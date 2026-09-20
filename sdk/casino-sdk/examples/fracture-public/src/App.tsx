@@ -269,52 +269,24 @@ export function App() {
   const nextStep = Math.min(step + 1, MAX_STEPS);
 
   /**
-   * Pick a live run back up after a reload.
+   * Deliberately NOT rehydrating a live session on load.
    *
-   * A run is a multi-step on-chain session: closing the tab at step 6 leaves it
-   * sitting in WAITING_PLAYER_ACTION with real banked value on it. Without
-   * this, reopening the game would show a fresh idle screen while that session
-   * quietly waited out its action deadline — the player would have to forfeit
-   * (and lose the host's cut) to get their winnings back. So on the first
-   * snapshot we look for our own unfinished session and rebuild the run around
-   * it, leaving the player exactly where they left off.
+   * A run is a multi-step on-chain session, so closing the tab mid-ladder
+   * leaves one open with real banked value on it, and picking it back up
+   * looks like the obvious kindness. It is not: from a cold start there is no
+   * reliable way to tell the player's own unfinished run from a stale one, and
+   * getting it wrong is far worse than not trying. Adopting the wrong session
+   * hands the player a ladder that is not theirs; adopting one the host
+   * reports as mid-draw strands them on "Drawing the fracture" for a step that
+   * is never coming, with every control disabled and a stake in the machine.
+   * Both of those happened.
    *
-   * Only ever adopts a session the host still reports as live, and never
-   * touches the stake, the step or the multiplier — all of those come from the
-   * contract's own game state.
+   * So a reload starts clean. An unfinished session keeps its banked value and
+   * is recoverable through the host's forfeit path, which `quoteForfeitPayout`
+   * answers honestly with the run's real cash-out value rather than zero.
+   * Losing the host's forfeit cut is a far smaller harm than being locked out
+   * of the game, or being shown somebody else's run.
    */
-  const adopted = useRef(false);
-  useEffect(() => {
-    if (adopted.current || run !== null || !snapshot) return;
-    const live = snapshot.sessions.items.find(
-      item =>
-        !item.isSettled &&
-        !isTerminalPhase(item.phase) &&
-        (item.phase === 1 || item.phase === 2) &&
-        item.raw.gameState !== undefined,
-    );
-    if (!live) return;
-    const state = decodeRunState(live.raw.gameState as `0x${string}`);
-    if (!state || state.struck || state.cashedOut) return;
-
-    adopted.current = true;
-    setAnchor(state.position);
-    setRun({
-      id: runSeq.current++,
-      sessionKey: live.sessionKey,
-      sessionId: live.sessionId,
-      knownKeys: [],
-      wager: live.wager !== undefined ? BigInt(live.wager) : 0n,
-      step: state.step,
-      // Everything already resolved has been resolved; nothing to replay.
-      presented: state.step,
-      phase: live.phase === 2 ? 'choosing' : 'awaiting',
-      // The earlier steps' words are not reconstructible from one snapshot, so
-      // the log starts here rather than inventing rows that were never drawn.
-      log: [],
-      committedAt: Date.now(),
-    });
-  }, [run, snapshot]);
 
   // --- advance the run from host snapshot pushes -----------------------------
   //
@@ -821,7 +793,9 @@ export function App() {
               step turned on where they were standing, which is the whole
               mechanic. This is a description of a resolved step, never a
               prediction, and it names the real arc the contract drew. */}
-          {landing && (
+          {/* Not once the run is over — the run log below tells the whole
+              story then, and this would sit on top of it. */}
+          {landing && phase !== 'over' && (
             <p className="landing-line" data-law={REALITY[landing.law].key} data-hit={landing.struck ? 'yes' : 'no'}>
               <strong>{REALITY[landing.law].name}</strong> took{' '}
               {arcPositions(landing.arcStart, landing.arcLength)
