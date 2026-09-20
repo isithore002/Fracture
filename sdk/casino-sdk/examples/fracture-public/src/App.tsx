@@ -43,15 +43,6 @@ import {
 } from './lib/sound';
 import './styles/fracture.css';
 
-/** The five laws, as they were in the original game. */
-const GLYPH: Record<Reality, string> = {
-  0: '↑', // gravity — up arrow
-  1: '↺', // time — anticlockwise
-  2: '◱', // scale
-  3: '◌', // orbit
-  4: '⬤', // void
-};
-
 const ANCHOR_GLYPH: Record<Position, string> = {
   0: '▲', // hilltop — high ground
   1: '❦', // orchard — the trees
@@ -107,8 +98,6 @@ type StepRecord = {
   arcLength: number;
   law: Reality;
   struck: boolean;
-  /** The law the player called for this step, if they called one. */
-  call: Reality | null;
 };
 
 type RunPhase =
@@ -158,11 +147,6 @@ type Run = {
   payout?: bigint;
   /** ms since epoch when the current step was committed. */
   committedAt: number;
-  /**
-   * The law called for the step in flight, locked at commit so a later change
-   * to the selection cannot rewrite what was called for a step already drawn.
-   */
-  call: Reality | null;
 };
 
 /**
@@ -217,16 +201,6 @@ export function App() {
   const { hostApi, snapshot, demo } = useCasinoHost();
 
   const [anchor, setAnchor] = useState<Position>(2);
-  /**
-   * Which law the player reckons will break next, or null for no call.
-   *
-   * This is a side-call for the record and nothing else: it does not touch the
-   * wager, the odds, the multiplier or the payout, and the UI says so outright
-   * wherever it appears. Survival depends on the anchor's position and nothing
-   * but the anchor's position — a prediction that looked like it paid but did
-   * not would be a lie told by omission.
-   */
-  const [lawCall, setLawCall] = useState<Reality | null>(null);
   const [wagerInput, setWagerInput] = useState('1.00');
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -404,7 +378,6 @@ export function App() {
       arcLength: state.arcLength,
       law: state.law,
       struck: state.struck,
-      call: run.call,
     };
     const payout =
       row.payout !== undefined && BigInt(row.payout) > 0n
@@ -606,7 +579,6 @@ export function App() {
       phase: 'committing',
       log: [],
       committedAt,
-      call: lawCall,
     });
     playLock();
 
@@ -638,7 +610,7 @@ export function App() {
       setRun(null);
       setError(e instanceof Error ? e.message : 'The run could not be opened.');
     }
-  }, [hostApi, wager, anchor, snapshot, lawCall]);
+  }, [hostApi, wager, anchor, snapshot]);
 
   /** ONE MORE — anchor reality somewhere and take another step. */
   const continueRun = useCallback(async () => {
@@ -649,7 +621,7 @@ export function App() {
     const committedAt = Date.now();
     setRun(current =>
       current && current.id === runId
-        ? { ...current, phase: 'committing', landing: undefined, committedAt, call: lawCall }
+        ? { ...current, phase: 'committing', landing: undefined, committedAt }
         : current,
     );
     playLock();
@@ -673,7 +645,7 @@ export function App() {
       setRun(current => (current && current.id === runId ? { ...current, phase: 'choosing' } : current));
       setError(e instanceof Error ? e.message : 'The step could not be taken.');
     }
-  }, [hostApi, run, anchor, lawCall, submitWithRetry]);
+  }, [hostApi, run, anchor, submitWithRetry]);
 
   /** CASH OUT — bank what the run is worth and end it. */
   const cashOut = useCallback(async () => {
@@ -692,7 +664,7 @@ export function App() {
       setRun(current => (current && current.id === runId ? { ...current, phase: 'choosing' } : current));
       setError(e instanceof Error ? e.message : 'The cash-out could not be placed.');
     }
-  }, [hostApi, run, anchor, lawCall, submitWithRetry]);
+  }, [hostApi, run, anchor, submitWithRetry]);
 
   /** Clear the ended run and arm a fresh one at the same stake. */
   const reset = useCallback(() => {
@@ -844,14 +816,6 @@ export function App() {
               ) : (
                 <span className="landing-safe">you held {ANCHOR[landing.anchor].name}</span>
               )}
-              {landing.call !== null && (
-                <span className="landing-call">
-                  {landing.call === landing.law
-                    ? ` · you called ${REALITY[landing.call].name}`
-                    : ` · you called ${REALITY[landing.call].name}`}
-                  <b>{landing.call === landing.law ? 'right' : 'wrong'}</b>
-                </span>
-              )}
             </p>
           )}
 
@@ -947,41 +911,6 @@ export function App() {
             <p key={anchor} className="pick-note" data-anchor={ANCHOR[anchor].key}>
               {ANCHOR[anchor].blurb}
             </p>
-
-            {/* Call the law. For the record only — see `lawCall`. The label
-                says so plainly rather than leaving a player to infer that a
-                prediction sitting next to a wager must pay something. */}
-            <div className="lawcall">
-              <p className="lawcall-label">
-                Call the law <span>for the record — it doesn&rsquo;t change your odds or payout</span>
-              </p>
-              <div className="picks picks-laws">
-                {REALITIES.map(id => (
-                  <button
-                    key={id}
-                    type="button"
-                    data-law={REALITY[id].key}
-                    className={
-                      `pick pick-law` +
-                      (landing && landing.law === id ? ' was' : '') +
-                      (landing && landing.call === id && landing.call !== landing.law ? ' missed' : '')
-                    }
-                    aria-pressed={lawCall === id}
-                    disabled={!canMove}
-                    onClick={() => {
-                      unlockAudio();
-                      playSelect();
-                      setLawCall(current => (current === id ? null : id));
-                    }}
-                  >
-                    <span className="pick-glyph" aria-hidden="true">
-                      {GLYPH[id]}
-                    </span>
-                    <span className="pick-name">{REALITY[id].name}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
           </section>
 
           {/* What this session has done to the world — YOUR FRACTURE, not a
@@ -1152,31 +1081,16 @@ export function App() {
         </div>
       </div>
 
-          {/* How the run works.
-          A positional survival ladder is not a game anyone has played
-          before, so it cannot be inferred from five keys and a multiplier
-          — pressing ONE MORE without knowing what it does is just
-          confusing. Shown while idle and while deciding, i.e. exactly when
-          the player is being asked to act, and out of the way once a step
+      {/* One line, not a rulebook. The buttons already say the rest: ENTER
+          THE RUN, then CASH OUT 1.19x or ONE MORE 1.48x — a player reads the
+          loop off the keys themselves within one round. This exists only to
+          name the shape of it up front, and gets out of the way once a step
           is in flight. */}
       {(phase === 'idle' || phase === 'choosing') && (
-        <ol className="howto" aria-label="How a run works">
-          <li>
-            <b>Stand somewhere.</b> Five positions. All five carry the same odds — the choice
-            is yours to make, but it is not a way to be cleverer than the game.
-          </li>
-          <li>
-            <b>Commit.</b> Only then is a random word drawn, and a law sweeps through and
-            destroys {hazardAt(nextStep)} of the 5 positions.
-          </li>
-          <li>
-            <b>Not hit?</b> The multiplier climbs and you choose again: bank it, or take one
-            more step into a world that gets less survivable.
-          </li>
-          <li>
-            <b>Hit?</b> The run ends and the stake is gone.
-          </li>
-        </ol>
+        <p className="tagline-loop">
+          Stand anywhere — every spot is equally safe. Survive and the multiplier climbs; bank it,
+          or push your luck for one more.
+        </p>
       )}
 
       <p className="footnote">

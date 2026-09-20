@@ -2425,155 +2425,18 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   HOW A RUN WORKS
-   A positional survival ladder is not a game anyone has played before. Five
-   keys and a multiplier do not explain it, and a player pressing ONE MORE
-   without knowing what it does is not taking a risk, they are guessing at the
-   interface. Shown exactly when they are being asked to act.
+   THE LOOP, IN ONE LINE
+   Not a manual. The keys already teach the game — ENTER THE RUN, then
+   CASH OUT 1.19x or ONE MORE 1.48x say the whole loop by themselves within
+   one round. This just names the shape of it up front, as a caption, not a
+   numbered rulebook competing with the board for attention.
    --------------------------------------------------------------------------- */
-.howto {
-  counter-reset: howto;
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin: 12px 0 0;
-  padding: 0;
-}
-
-.howto li {
-  counter-increment: howto;
-  position: relative;
-  padding: 9px 11px 9px 26px;
-  border-radius: 4px;
-  border: 1px solid rgba(176, 141, 87, 0.18);
-  background: rgba(12, 10, 18, 0.55);
+.tagline-loop {
+  margin: 12px auto 0;
+  max-width: 62ch;
+  text-align: center;
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: 11.5px;
   line-height: 1.5;
   color: var(--muted);
-}
-
-.howto li::before {
-  content: counter(howto);
-  position: absolute;
-  top: 9px;
-  left: 9px;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: var(--brass-dim);
-  color: #0d0a12;
-  font-family: var(--font-readout);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 13px;
-  text-align: center;
-}
-
-.howto b {
-  display: block;
-  color: var(--readout);
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-@media (max-width: 860px) {
-  .howto { grid-template-columns: repeat(2, 1fr); }
-}
-
-@media (max-width: 480px) {
-  .howto { grid-template-columns: 1fr; gap: 6px; }
-  .howto li { font-size: 10.5px; padding: 7px 9px 7px 24px; }
-}
-
-/* ---------------------------------------------------------------------------
-   CALLING THE LAW
-   A side-call, for the record. It never touches the wager, the odds or the
-   payout, so it is styled as a quieter row than the anchor keys and labelled
-   outright â€” a prediction sitting next to a stake that looked like it paid,
-   but did not, would be a lie told by omission.
-   --------------------------------------------------------------------------- */
-.lawcall {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(176, 141, 87, 0.16);
-}
-
-.lawcall-label {
-  margin: 0 0 7px;
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--brass);
-}
-
-.lawcall-label span {
-  display: block;
-  font-family: var(--font-ui);
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
-  text-transform: none;
-  color: var(--muted);
-}
-
-/* Smaller than the anchor keys: this decides nothing. */
-.pick-law {
-  padding: 9px 3px 7px;
-}
-
-.pick-law .pick-glyph { font-size: 14px; }
-.pick-law .pick-name { font-size: 8.5px; }
-
-/* The law that actually broke. */
-.pick-law.was {
-  box-shadow:
-    inset 0 0 0 1px var(--law-color),
-    0 0 12px -2px color-mix(in srgb, var(--law-color) 60%, transparent);
-}
-
-/* Called, and it was not this one. */
-.pick-law.missed {
-  opacity: 0.4;
-}
-
-.landing-call {
-  color: var(--muted);
-}
-
-.landing-call b {
-  margin-left: 5px;
-  padding: 1px 5px 2px;
-  border-radius: 3px;
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--muted);
-}
-
-.landing-line .landing-call b:not(:empty) { color: var(--muted); }
-
-.arclog-call {
-  font-family: var(--font-readout);
-  font-size: 11px;
-  color: var(--muted);
-  opacity: 0.6;
-}
-
-.arclog-call.right {
-  color: var(--win);
-  opacity: 1;
-}
-
-.arclog-calls { color: var(--muted); }
-
-.arclog-row {
-  grid-template-columns: 16px auto 1fr auto auto;
 }

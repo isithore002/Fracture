@@ -8,7 +8,6 @@ type StepRecord = {
   arcLength: number;
   law: Reality;
   struck: boolean;
-  call: Reality | null;
 };
 
 type Props = {
@@ -42,8 +41,6 @@ export function ArcReadout({ log }: Props) {
   // rows would quietly under-report how far the run actually went.
   const depth = log.length > 0 ? log[log.length - 1].step : 0;
   const missing = depth > log.length;
-  const called = log.filter(r => r.call !== null);
-  const right = called.filter(r => r.call === r.law).length;
 
   return (
     <div className="arclog">
@@ -55,12 +52,6 @@ export function ArcReadout({ log }: Props) {
         </span>
         <span className="arclog-value">
           {survived} of {depth} survived
-          {called.length > 0 && (
-            <span className="arclog-calls">
-              {' '}
-              · called {right}/{called.length}
-            </span>
-          )}
         </span>
       </div>
 
@@ -106,15 +97,6 @@ export function ArcReadout({ log }: Props) {
                   <span className="arclog-safe">you held {ANCHOR[record.anchor].name}</span>
                 )}
               </span>
-
-              {record.call !== null && (
-                <span
-                  className={`arclog-call${record.call === record.law ? ' right' : ''}`}
-                  title={`You called ${REALITY[record.call].name}`}
-                >
-                  {record.call === record.law ? '✓' : '✕'}
-                </span>
-              )}
 
               <span className="arclog-mult">
                 {record.struck ? '—' : `${multiplierAt(record.step).toFixed(2)}×`}
