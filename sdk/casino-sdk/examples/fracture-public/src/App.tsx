@@ -64,8 +64,12 @@ const ANCHOR_GLYPH: Record<Position, string> = {
 const MIN_TELEGRAPH_MS = 620;
 /** A beat of near-silence right before the arc lands. */
 const HOLD_MS = 180;
-/** Surviving: a quick pulse, then straight back to the decision. */
-const SAFE_MS = 460;
+/**
+ * Surviving. Long enough to actually read what the arc took and where the
+ * anchor was — at 460ms the one moment that explains the step was over before
+ * it registered, and the ladder appeared to move on its own.
+ */
+const SAFE_MS = 820;
 /** The run ending: the full law transformation gets its weight. */
 const FRACTURE_MS = 1500;
 /** Floor on the "committed" beat so a fast open doesn't cut the lock flash. */
@@ -779,9 +783,14 @@ export function App() {
             </div>
           )}
 
-          {phase === 'awaiting' && !stalled && (
+          {/* Say what is being waited on, not just that something is. */}
+          {(phase === 'committing' || phase === 'awaiting') && !stalled && (
             <p className="status">
-              <span className="dots">Drawing the fracture</span>
+              <span className="dots">
+                {phase === 'committing'
+                  ? `Locking your anchor at ${ANCHOR[anchor].name}`
+                  : `Drawing step ${nextStep} — ${hazardAt(nextStep)} of 5 positions will go`}
+              </span>
             </p>
           )}
 
@@ -813,7 +822,7 @@ export function App() {
           {stalled && (
             <p className="status status-stalled">
               This step hasn&rsquo;t come back yet. Your stake and everything banked so far are
-              still on the session &mdash; reloading picks the run back up where it left off.
+              still on the session.
             </p>
           )}
 
@@ -1071,6 +1080,33 @@ export function App() {
           </section>
         </div>
       </div>
+
+          {/* How the run works.
+          A positional survival ladder is not a game anyone has played
+          before, so it cannot be inferred from five keys and a multiplier
+          — pressing ONE MORE without knowing what it does is just
+          confusing. Shown while idle and while deciding, i.e. exactly when
+          the player is being asked to act, and out of the way once a step
+          is in flight. */}
+      {(phase === 'idle' || phase === 'choosing') && (
+        <ol className="howto" aria-label="How a run works">
+          <li>
+            <b>Stand somewhere.</b> Five positions. All five carry the same odds — the choice
+            is yours to make, but it is not a way to be cleverer than the game.
+          </li>
+          <li>
+            <b>Commit.</b> Only then is a random word drawn, and a law sweeps through and
+            destroys {hazardAt(nextStep)} of the 5 positions.
+          </li>
+          <li>
+            <b>Not hit?</b> The multiplier climbs and you choose again: bank it, or take one
+            more step into a world that gets less survivable.
+          </li>
+          <li>
+            <b>Hit?</b> The run ends and the stake is gone.
+          </li>
+        </ol>
+      )}
 
       <p className="footnote">
         95.00% RTP at every stopping point, fixed by construction: the multiplier after k steps is

@@ -920,13 +920,20 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
       const pad = pads[i];
       const mat = padMats[i];
       // Standing on a pad lights it; the tension pulse runs through all five.
-      const pulse = 0.5 + 0.5 * Math.sin(elapsed * 3.4 + i * 1.25);
+      // The wind-up. Pressing a key has to visibly start something, or the
+      // wait reads as the game having done nothing: the ring pulses harder and
+      // faster the longer a step is in the air, running round the positions in
+      // sequence so the whole board is visibly charging rather than idling.
+      const sweep = Math.sin(elapsed * (3.4 + tension * 5.5) + i * 1.25);
+      const pulse = 0.5 + 0.5 * sweep;
       mat.opacity =
         0.14 +
         (isHere ? 0.22 : 0) +
-        tension * 0.18 * pulse -
-        padHit[i] * 0.1;
-      mat.color.setHex(padHit[i] > 0.02 ? 0xff7a6a : isHere ? 0xffd98a : 0x8fa8d8);
+        tension * 0.5 * pulse +
+        // ...and a struck position FLARES before it goes, rather than quietly
+        // fading out at the one moment the player needs to see it.
+        padHit[i] * 0.85 * (1.2 - padHit[i]);
+      mat.color.setHex(padHit[i] > 0.02 ? 0xff4d5e : isHere ? 0xffd98a : 0x8fa8d8);
       // A struck position drops away and tilts, as if the ground under it went.
       pad.position.y = -padHit[i] * 0.75;
       pad.rotation.z = padHit[i] * 0.45 * (i % 2 === 0 ? 1 : -1);
@@ -944,9 +951,9 @@ export function createFractureScene(canvas: HTMLCanvasElement): FractureScene | 
     // should look like surviving, not like a near miss.
     const anchorLost = state.struck ? padHit[Math.max(0, Math.min(state.anchor, 4))] : 0;
     anchorGroup.position.y = -anchorLost * 0.8;
-    anchorMat.emissiveIntensity = 1.6 * (1 - anchorLost) + tension * 0.9;
+    anchorMat.emissiveIntensity = 1.6 * (1 - anchorLost) + tension * 2.4;
     beamMat.opacity = (0.5 + tension * 0.35) * (1 - anchorLost);
-    anchorMesh.scale.setScalar(1 - anchorLost * 0.7);
+    anchorMesh.scale.setScalar((1 - anchorLost * 0.7) * (1 + tension * 0.18));
 
     // --- camera -------------------------------------------------------------
     // Very restrained: a slow idle drift, a push-in under tension, and a small
