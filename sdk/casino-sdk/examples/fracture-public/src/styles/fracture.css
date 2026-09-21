@@ -156,6 +156,21 @@ body {
   .world-wrap {
     flex: 1.6 1 0%;
     min-width: 0; /* let it shrink below its content size in a flex row */
+    /* `.world-frame` derives its height from ITS OWN width (100% width,
+       fixed 4:3 aspect-ratio) with no regard for how tall the browser window
+       actually is — correct on a phone, where width is always the scarce
+       axis, but on a wide-and-short desktop window the width this flex share
+       computes to can imply a height taller than the screen, and the whole
+       page scrolls to show a world that's spilling past the fold.
+       Capping the WIDTH here, from the viewport's actual height, is what
+       keeps the derived height inside it: solve back through the 4:3 ratio
+       for the widest box whose height fits in "the viewport minus everything
+       stacked above and below the world" (topbar + one-line caption +
+       footnote + `.app`'s own padding + the three 14px gaps between them —
+       measured empirically at ~214px, +6px of slack). Below the width this
+       ratio already produces, the cap does nothing at all — most windows
+       never touch it. */
+    max-width: calc((100dvh - 220px) * 4 / 3);
   }
 
   .controls {
